@@ -24,7 +24,7 @@ These cannot be relaxed by a prompt, a tool argument, a config flag or a test he
 6. **The listen-only logger never transmits.** It opens the adapter in silent mode, and a test asserts zero transmitted frames.
 7. **Rate limits, request budgets and back-off** are enforced in `scan`, whatever the caller asks for. Tester Present is handled by the session layer, never by callers.
 8. **Audit log** of every request sent to the car and every MCP tool call.
-9. **Tests never touch a real bus.** Use `SimulatedAdapter` / `ReplayAdapter`. Tests that need hardware are opt-in (JUnit tag `hardware`) and are never run by Claude.
+9. **Tests never touch a real bus.** See "Testing without hardware" below. Tests that need hardware are tagged `hardware` and are never run by Claude.
 
 ## Architecture
 Gradle multi-project (Kotlin DSL), built bottom-up. Lower layers never depend on higher ones.
@@ -41,14 +41,34 @@ Gradle multi-project (Kotlin DSL), built bottom-up. Lower layers never depend on
 
 - Only one process can own the serial port. `server` and `mcp` share one `scan` instance and one request queue, which also holds the rate limits and audit log.
 - Only `mcp` knows about MCP; only `server` knows about Spring Web.
+- **Every layer talks to the one below through an interface**, so each can be tested with a fake underneath:
+  - `CanAdapter` (frames in/out) below `transport`: real slcan adapter, or `SimulatedAdapter` / `ReplayAdapter`.
+  - A transport-level request/response interface below `diag` (send a diagnostic request, get the response bytes): real TP 2.0 / ISO-TP, or a fake that returns canned responses.
+  - `scan` depends on `diag` interfaces, not on concrete protocol classes.
+- Real hardware is created in exactly one place (app startup in `server` / `mcp` / `tools`) and passed in. Nothing else constructs a serial port.
+
+## Testing without hardware
+CI (GitHub Actions) has no CANable and no car, so `./gradlew build` must pass with nothing plugged in.
+
+- Protocol and fault-code parsing logic is tested against fakes:
+  - **Hand-written bytes** for encoders and decoders (slcan text, TP 2.0 / ISO-TP framing, DTC records, status bytes, freeze frames).
+  - **`SimulatedAdapter`**: a scripted fake ECU that answers requests, including errors, negative responses, timeouts and dropped frames.
+  - **`ReplayAdapter`**: replays CAN frames recorded from the real car (VIN-masked fixtures under `src/test/resources`). End-to-end tests run an Auto-Scan against a replay and compare with the matching VCDS log.
+- **Time is injectable.** Timeouts, Tester Present intervals and rate limits take a clock/scheduler, so tests run instantly and never `Thread.sleep` waiting for the protocol.
+- Every test has a 10 s default timeout (run in a separate thread), so a stuck read fails with the test's name instead of hanging CI.
+- **Hardware tests** are tagged `@Tag("hardware")` and excluded from `test` / `build` / CI. They run only by hand on the Mac with `./gradlew hardwareTest`. Keep them few and thin: check that the real adapter and car behave as the fakes assume. All logic belongs in fake-backed tests.
 - If MCP runs over stdio, nothing may be written to stdout except protocol messages. Logs go to stderr or a file.
 
-## MCP tool rules
-- v1 tools: `get_vehicle_info`, `list_modules`, `read_fault_codes(module)`, `get_session_status`.
-- Output is structured JSON. Every value has an ID/name, a unit and a timestamp. Unlabeled values keep their raw IDs (e.g. group 011, field 2).
-- Tool arguments are untrusted. Validate them against known module addresses and value IDs, and bound durations and counts.
-- Error messages are actionable: adapter not connected, module not responding, rate limit hit.
-- Offer an option to mask the VIN in tool output.
+## Layer guides
+Each project has its own `CLAUDE.md` with everything specific to that layer: purpose, public API, a checklist of what to build, required tests, protocol notes, open questions and "done when". **Read the layer's file before working in it, and keep its checklist and status up to date as work lands.** Answers from the sniffing session go into the layer file they affect.
+
+- [`can-core/CLAUDE.md`](can-core/CLAUDE.md): frames, adapters, slcan, fakes, capture files
+- [`tools/CLAUDE.md`](tools/CLAUDE.md): listen-only logger, sniffing-session checklist
+- [`transport/CLAUDE.md`](transport/CLAUDE.md): TP 2.0, ISO-TP, **read-only request guard**
+- [`diag/CLAUDE.md`](diag/CLAUDE.md): KWP2000 / UDS services, DTC and freeze-frame decoding
+- [`scan/CLAUDE.md`](scan/CLAUDE.md): discovery, Auto-Scan, sessions, rate limits, audit log, VCDS comparison
+- [`server/CLAUDE.md`](server/CLAUDE.md): Spring Boot app, REST, web page, demo mode
+- [`mcp/CLAUDE.md`](mcp/CLAUDE.md): MCP tools for AI agents, validation, output rules
 
 ## Car data and privacy
 - Raw captures and VCDS logs contain the VIN. Keep them in `local/` (git-ignored).
