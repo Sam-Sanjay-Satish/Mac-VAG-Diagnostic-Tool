@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin DSL / Gradle tooling caches
+.kotlin/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+bin/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Raw car data (captures, VCDS logs) contain the VIN.
+# Keep unredacted files here; only commit sanitized fixtures.
+local/
