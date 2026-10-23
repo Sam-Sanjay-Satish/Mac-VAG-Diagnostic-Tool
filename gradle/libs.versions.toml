@@ -2,8 +2,22 @@
 junit = "6.1.3"
 jserialcomm = "2.11.4"
 slf4j = "2.0.20"
+# server only. Approved by the user on 2026-10-22.
+spring-boot = "4.1.2"
+# mcp only (official MCP Java SDK). Approved by the user on 2026-10-22.
+mcp-sdk = "2.1.0"
+# Servlet API the MCP SDK's HTTP transport is built on; provided at runtime by Spring Boot's Tomcat (same version).
+jakarta-servlet = "6.1.0"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 jserialcomm = { module = "com.fazecast:jSerialComm", version.ref = "jserialcomm" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+mcp-bom = { module = "io.modelcontextprotocol.sdk:mcp-bom", version.ref = "mcp-sdk" }
+mcp = { module = "io.modelcontextprotocol.sdk:mcp" }
+jakarta-servlet-api = { module = "jakarta.servlet:jakarta.servlet-api", version.ref = "jakarta-servlet" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

@@ -19,6 +19,7 @@ include(
     "transport",
     "diag",
     "scan",
-    "server",
+    // mcp is hosted in-process by server over HTTP (user decision, 2026-10-22), so it sits below server.
     "mcp",
+    "server",
 )

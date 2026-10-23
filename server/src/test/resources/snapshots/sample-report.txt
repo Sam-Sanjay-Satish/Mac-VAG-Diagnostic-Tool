@@ -1,0 +1,69 @@
+macvagdiag Auto-Scan (read-only)
+==============================================================================
+Date:         2026-01-01 10:00:00 UTC
+Duration:     6.0 s
+VIN:          SAMPLEVIN00000000  from module 01
+Requested by: web
+Modules:      13 checked, 7 responding, 2 with faults, 2 fault code(s)
+Discovery:    fixed list of known addresses (gateway installation list not read yet)
+
+------------------------------------------------------------------------------
+Address 01: Engine                         Status: 1 fault
+   Protocol:     UDS over ISO-TP (7E0/7E8)
+   Part No:      03L906018XX
+   Hardware:     03L907309X
+   Component:    SAMPLE R4 2.0L TDI
+   Software:     9971
+   Coding:       0000172A0000
+   VIN:          SAMPLEVIN00000000
+   1 Fault Found:
+   P0401-00 - status 2F: testFailed, testFailedThisOperationCycle, pendingDTC, confirmedDTC, testFailedSinceLastClear
+              Record: 04 01 00 2F
+              Freeze frame (raw, not decoded yet):
+                 19 04 04 01 00 FF: 01 01 F4 0D 2A
+------------------------------------------------------------------------------
+Address 02: Transmission                   Status: OK
+   Protocol:     KWP2000 over TP 2.0 (logical address 02)
+   No fault code found.
+------------------------------------------------------------------------------
+Address 03: ABS Brakes                     Status: 1 fault
+   Protocol:     KWP2000 over TP 2.0 (logical address 03)
+   1 Fault Found:
+   01314 - status 23: symptom 35, static (KWP status layout UNCONFIRMED)
+              Record: 05 22 23
+              Freeze frame: not available (KWP2000 freeze frames need a request that names the DTC)
+------------------------------------------------------------------------------
+Address 08: Auto HVAC                      Status: no response (not installed, or not reachable)
+   Note:         no response
+------------------------------------------------------------------------------
+Address 09: Central Electrics              Status: OK
+   Protocol:     KWP2000 over TP 2.0 (logical address 09)
+   No fault code found.
+------------------------------------------------------------------------------
+Address 15: Airbags                        Status: OK
+   Protocol:     KWP2000 over TP 2.0 (logical address 15)
+   No fault code found.
+------------------------------------------------------------------------------
+Address 16: Steering Wheel                 Status: no response (not installed, or not reachable)
+   Note:         no response
+------------------------------------------------------------------------------
+Address 17: Instruments                    Status: OK
+   Protocol:     KWP2000 over TP 2.0 (logical address 17)
+   No fault code found.
+------------------------------------------------------------------------------
+Address 19: CAN Gateway                    Status: OK
+   Protocol:     KWP2000 over TP 2.0 (logical address 19)
+   No fault code found.
+------------------------------------------------------------------------------
+Address 25: Immobilizer                    Status: no response (not installed, or not reachable)
+   Note:         no response
+------------------------------------------------------------------------------
+Address 44: Steering Assist                Status: no response (not installed, or not reachable)
+   Note:         no response
+------------------------------------------------------------------------------
+Address 46: Central Convenience            Status: no response (not installed, or not reachable)
+   Note:         no response
+------------------------------------------------------------------------------
+Address 56: Radio                          Status: no response (not installed, or not reachable)
+   Note:         no response
+End --------------------------------------------------------------------------

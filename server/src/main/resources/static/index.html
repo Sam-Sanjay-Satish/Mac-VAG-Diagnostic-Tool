@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>macvagdiag</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">macvagdiag</span>
+      <span class="brand-sub">read-only VW diagnostics</span>
+    </div>
+    <div id="status" class="status" aria-live="polite">
+      <span class="dot dot-unknown" id="status-dot"></span>
+      <span id="status-text">Checking the adapter...</span>
+      <button type="button" id="status-refresh" class="link-button">Refresh</button>
+    </div>
+  </header>
+
+  <div id="demo-banner" class="demo-banner" hidden>
+    DEMO DATA: simulated car, not a real vehicle. Nothing here comes from a car.
+  </div>
+
+  <main>
+    <section class="panel">
+      <div class="scan-controls">
+        <button type="button" id="run-scan" class="primary">Run Auto-Scan</button>
+        <div id="scan-progress" class="progress" hidden>
+          <progress id="progress-bar" max="1" value="0"></progress>
+          <span id="progress-text"></span>
+        </div>
+      </div>
+      <p id="status-detail" class="muted"></p>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="summary" class="panel" hidden>
+      <div class="summary-head">
+        <h2 id="summary-title">Auto-Scan</h2>
+        <div class="downloads">
+          <a id="report-link" class="button" href="#" download>Download report</a>
+          <a id="report-masked-link" class="button" href="#" download>Report, VIN masked</a>
+        </div>
+      </div>
+      <dl id="summary-facts" class="facts"></dl>
+      <ul id="summary-notes" class="notes"></ul>
+    </section>
+
+    <section id="results" class="results" aria-live="polite"></section>
+
+    <section id="unreachable" class="panel" hidden>
+      <h3>Not reachable</h3>
+      <p class="muted">No answer: not installed in this car, or not reachable (ignition off, wiring).</p>
+      <ul id="unreachable-list" class="chips"></ul>
+    </section>
+  </main>
+
+  <footer class="footer muted">
+    Reads fault codes only. It cannot clear codes, code modules or run output tests.
+  </footer>
+</body>
+</html>
