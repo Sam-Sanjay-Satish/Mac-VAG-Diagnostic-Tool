@@ -93,4 +93,4 @@ Each project has its own `CLAUDE.md` with everything specific to that layer: pur
 - Source of fault-code descriptions and labels (not being worked on yet).
 - Final project name.
 - From the sniffing session: installed modules and how VCDS discovers them, TP 2.0 + KWP vs ISO-TP + UDS per module, the exact requests for DTCs and freeze frames, VCDS pacing and Tester Present timing.
-- The CANable slcan firmware's exact silent-mode command. Verify it against the firmware source before the sniffing session.
+- ~~The CANable slcan firmware's exact silent-mode command.~~ Resolved 2026-11-05: stock firmware's `M1` doesn't work, so we use our patched build `macvagdiag-silent-1` (`firmware/canable2/`), where `C`, `S6`, `M1`, `O` opens in bus monitoring mode. `SlcanAdapter` checks the build with `V`. Details in `can-core/CLAUDE.md`.

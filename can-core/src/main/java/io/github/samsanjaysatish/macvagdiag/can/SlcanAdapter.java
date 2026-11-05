@@ -5,6 +5,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,10 +16,14 @@ import org.slf4j.LoggerFactory;
  * lines, decodes them and queues received frames, stamped on receipt with the {@link TimeSource}
  * (the CANable stock firmware has no {@code Z1} timestamps).
  *
- * <p><b>{@link AdapterMode#LISTEN_ONLY} is refused:</b> the stock CANable 2.0 firmware accepts its
- * silent-mode command ({@link SlcanCodec#SILENT_MODE_COMMAND}) but then opens the controller in normal
- * mode anyway, so the adapter would still ACK frames and send error frames on the bus. See the slcan
- * reference in {@code can-core/CLAUDE.md}. Opening in LISTEN_ONLY throws before the serial port is touched.
+ * <p><b>{@link AdapterMode#LISTEN_ONLY} only on a pinned firmware build.</b> The stock CANable 2.0
+ * firmware accepts the silent-mode command ({@link SlcanCodec#SILENT_MODE_COMMAND}) but then opens the
+ * controller in normal mode anyway, so the adapter would still ACK frames and could send error frames on
+ * the bus. Our patched firmware ({@code firmware/canable2}) fixes that. So a LISTEN_ONLY open first takes
+ * the adapter off the bus ({@code C}) and asks for its version ({@code V}); neither touches the bus. Only an
+ * exact match with {@link #SILENT_FIRMWARE_VERSIONS} continues with {@code S<n>}, {@code M1}, {@code O}.
+ * Anything else (stock firmware, a dirty or unknown build, no reply) closes the port and throws, having
+ * sent nothing but {@code C} and {@code V}. See the slcan reference in {@code can-core/CLAUDE.md}.
  *
  * <p>Create it with {@link #forPort}; this is the only class that constructs a real serial port.
  */
@@ -28,10 +34,24 @@ public final class SlcanAdapter extends AbstractCanAdapter {
     /** Received frames held while nobody calls {@code receive}; beyond this new frames are dropped. */
     public static final int RECEIVE_QUEUE_CAPACITY = 100_000;
 
-    static final String LISTEN_ONLY_REFUSED = "SlcanAdapter refuses LISTEN_ONLY: the CANable 2.0 stock slcan "
-            + "firmware (normaldotcom/canable2-fw b158aa7) accepts the silent-mode command M1 but can_enable() "
-            + "resets the controller to normal mode on O, so the adapter would still ACK and send error frames "
-            + "on the bus. Not opening the port until that is resolved (see can-core/CLAUDE.md).";
+    /**
+     * Firmware builds whose silent mode ({@code M1} then {@code O}) really opens the controller in bus
+     * monitoring mode, as reported by {@code V}. Exact matches only. Add a build here only after reading
+     * its source (see {@code firmware/canable2/README.md}).
+     */
+    static final Set<String> SILENT_FIRMWARE_VERSIONS = Set.of("macvagdiag-silent-1");
+
+    /**
+     * Reads to wait for the reply to {@code V}: at most about 100 ms each on the real port (about 2 s in
+     * all). Counted rather than timed so tests on a fake clock stay deterministic.
+     */
+    static final int VERSION_REPLY_MAX_READS = 20;
+
+    private static final String NEEDS_SILENT_FIRMWARE = "LISTEN_ONLY needs CANable firmware "
+            + String.join(" or ", new TreeSet<>(SILENT_FIRMWARE_VERSIONS))
+            + " (see firmware/canable2/README.md). The stock CANable 2.0 firmware accepts M1 but opens the "
+            + "controller in normal mode anyway, so it would ACK frames and could send error frames on the bus. "
+            + "The adapter was taken off the bus (C) and nothing else was sent.";
 
     private static final Duration READER_JOIN_TIMEOUT = Duration.ofSeconds(2);
     private static final int READ_BUFFER_SIZE = 512;
@@ -75,10 +95,6 @@ public final class SlcanAdapter extends AbstractCanAdapter {
 
     @Override
     void connect(Bitrate bitrate, AdapterMode mode) {
-        if (mode == AdapterMode.LISTEN_ONLY) {
-            log.error(LISTEN_ONLY_REFUSED);
-            throw new CanAdapterException(LISTEN_ONLY_REFUSED);
-        }
         try {
             port.open();
         } catch (IOException e) {
@@ -86,17 +102,69 @@ public final class SlcanAdapter extends AbstractCanAdapter {
         }
         try {
             // Close first in case a previous run left the adapter on the bus: the firmware ignores
-            // S (bitrate) while on the bus. The stock firmware sends no OK/error replies to commands,
-            // so nothing waits for them.
+            // S (bitrate) and M (mode) while on the bus. The CANable firmware sends no OK/error replies
+            // to commands, so nothing waits for them.
             writeCommand(SlcanCodec.CLOSE_COMMAND);
+            if (mode == AdapterMode.LISTEN_ONLY) {
+                requireSilentFirmware();
+            }
             writeCommand(SlcanCodec.bitrateCommand(bitrate));
+            writeCommand(mode == AdapterMode.LISTEN_ONLY
+                    ? SlcanCodec.SILENT_MODE_COMMAND
+                    : SlcanCodec.NORMAL_MODE_COMMAND);
             queue = new FrameQueue(time, RECEIVE_QUEUE_CAPACITY);
             startReader();
             writeCommand(SlcanCodec.OPEN_COMMAND);
+        } catch (CanAdapterException e) {
+            shutDown(false);
+            throw e;
         } catch (IOException | RuntimeException e) {
             shutDown(false);
             throw new CanAdapterException("Could not start slcan on " + port.name(), e);
         }
+    }
+
+    /** Asks the adapter for its firmware version and throws unless it is a pinned silent-capable build. */
+    private void requireSilentFirmware() throws IOException {
+        Optional<String> version = queryFirmwareVersion();
+        if (version.isEmpty()) {
+            String message = "SlcanAdapter refuses LISTEN_ONLY: no reply to V from " + port.name()
+                    + ", so its firmware can't be confirmed. " + NEEDS_SILENT_FIRMWARE;
+            log.error(message);
+            throw new CanAdapterException(message);
+        }
+        if (!SILENT_FIRMWARE_VERSIONS.contains(version.get())) {
+            String message = "SlcanAdapter refuses LISTEN_ONLY: " + port.name() + " runs firmware '"
+                    + SlcanCodec.printable(version.get()) + "', which has no verified silent mode. "
+                    + NEEDS_SILENT_FIRMWARE;
+            log.error(message);
+            throw new CanAdapterException(message);
+        }
+        log.info("{}: firmware {} has a working silent mode", name(), version.get());
+    }
+
+    /**
+     * Sends {@code V} and reads lines until the version reply, for at most {@link #VERSION_REPLY_MAX_READS}
+     * reads. Runs before the reader thread starts. Frame lines still arriving from before {@code C} are
+     * skipped (they predate the open).
+     */
+    private Optional<String> queryFirmwareVersion() throws IOException {
+        writeCommand(SlcanCodec.VERSION_COMMAND);
+        SlcanLineSplitter splitter = new SlcanLineSplitter();
+        byte[] buffer = new byte[READ_BUFFER_SIZE];
+        for (int i = 0; i < VERSION_REPLY_MAX_READS; i++) {
+            int n = port.read(buffer);
+            if (n < 0) {
+                throw new IOException(port.name() + " closed while waiting for the firmware version");
+            }
+            for (String line : splitter.feed(buffer, n)) {
+                Optional<String> version = SlcanCodec.versionOf(line);
+                if (version.isPresent()) {
+                    return version;
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     @Override

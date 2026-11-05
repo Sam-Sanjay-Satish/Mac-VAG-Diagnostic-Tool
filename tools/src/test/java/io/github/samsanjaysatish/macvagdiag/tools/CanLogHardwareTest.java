@@ -17,8 +17,9 @@ import org.junit.jupiter.api.io.TempDir;
  * Manual only ({@code ./gradlew :tools:hardwareTest}), with the CANable on the running car's diagnostic
  * CAN: logs 10 seconds in listen-only mode through the real program. Never run by Claude or CI.
  *
- * <p><b>Expected to fail until silent mode is solved:</b> SlcanAdapter refuses LISTEN_ONLY with the stock
- * firmware (see can-core/CLAUDE.md), so can-log exits 1 at open without transmitting.
+ * <p>Needs the CANable on the patched firmware {@code macvagdiag-silent-1} ({@code firmware/canable2}). On
+ * stock firmware SlcanAdapter refuses LISTEN_ONLY after sending only {@code C} and {@code V}, so can-log
+ * exits 1 at open without transmitting.
  */
 @Tag("hardware")
 class CanLogHardwareTest {

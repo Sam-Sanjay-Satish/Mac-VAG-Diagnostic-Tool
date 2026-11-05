@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** `can-log`, `list-ports` and `capture-info` built and tested against fakes (62 tests, `./gradlew :tools:build` green). **`can-log` can't be used on the car yet:** it opens the adapter only in `LISTEN_ONLY`, and `SlcanAdapter` refuses that because the CANable 2.0 stock firmware has no working silent mode (see `can-core/CLAUDE.md`, "Listen-only / silent mode"). On the real adapter it exits 1 at open with that explanation, having transmitted nothing and created no file. Fixture sanitizer not started (needs `transport`). **Package:** `io.github.samsanjaysatish.macvagdiag.tools`
+**Status:** `can-log`, `list-ports` and `capture-info` built and tested against fakes (62 tests, `./gradlew :tools:build` green). **`can-log` needs the patched CANable firmware `macvagdiag-silent-1`** ([`firmware/canable2`](../firmware/canable2/README.md), flashed on the user's adapter 2026-11-05). It opens the adapter only in `LISTEN_ONLY`, and `SlcanAdapter` allows that only after `V` reports that build (see `can-core/CLAUDE.md`, "Listen-only / silent mode"). On stock firmware it exits 1 at open with an explanation, having sent only `C` and `V` to the adapter (nothing on the bus) and created no file. **Not yet run against the real adapter.** Fixture sanitizer not started (needs `transport`). **Package:** `io.github.samsanjaysatish.macvagdiag.tools`
 **Depends on:** `can-core` only (later also `transport` for the fixture sanitizer). **Used by:** nothing; these are command-line programs.
 
 ## Purpose
@@ -21,7 +21,7 @@ Command-line utilities that support development, mainly the **listen-only CAN lo
     - `start()` opens the adapter first and only then creates the file, so a refused open leaves no file. An existing output file is never overwritten (exit 2). Output outside a `local/` directory prints a VIN warning.
     - Options: `--port`, `--bitrate` (`500000` or `500k`), `--output`, `--note`, `--duration <seconds>` (optional; added so a run can end by itself, used by the hardware test). `--opt value` and `--opt=value` both work.
     - Header (`# key: value`): `date` (ISO, local zone), `bitrate`, `mode: LISTEN_ONLY`, `port`, `firmware`, `tool: macvagdiag-tools 0.1.0-dev`, `note` (only if given), plus two plain comments (format, VIN warning).
-    - Firmware comes from the USB description of the matching discovered port (`"CANable2 <git version> <remote>"`), never from sending `V`. Unknown or non-CANable ports give `unknown`. **To verify on the Mac:** that jSerialComm's `getPortDescription()` really returns the firmware's USB product string.
+    - The header's firmware comes from the USB description of the matching discovered port (`"CANable2 <git version> <remote>"`); the logger itself never sends `V`. (`SlcanAdapter` does, as part of the `LISTEN_ONLY` open, to check the build.) Unknown or non-CANable ports give `unknown`. **To verify on the Mac:** what jSerialComm's `getPortDescription()` returns. ioreg has both the full product string and a 31-character short name with `-` and `.` turned into `_` (`CANable2 macvagdiag_silent_1 gi`).
     - Flush every 1 s, summary every 5 s (`can-log: 0:00:05  0.6 frames/s  3 frames  2 IDs  0 errors`), both timed on the `TimeSource`. Errors = `SlcanAdapter` decode errors + error replies + discarded lines + dropped frames, plus capture write errors.
     - `shutdown()` is the Ctrl-C hook: sets the stop flag, closes the adapter (which wakes a blocked `receive`), flushes and closes the file, and prints the final stats once. It's idempotent and thread-safe. An adapter failure (unplug) keeps the frames received before it, then goes through the same shutdown, exit 1.
     - Console output goes to `System.err` directly. can-core's SLF4J logs also go to stderr through `slf4j-simple` (`runtimeOnly`, approved by the user on 2026-10-22), configured in `src/main/resources/simplelogger.properties`.
@@ -51,11 +51,10 @@ Requires JDK 25. `./gradlew :tools:run` uses the Gradle toolchain automatically.
 - [x] Argument parsing: defaults, bad bitrate, missing port, output path in `local/`. (`CanLogOptionsTest`, `PortChoiceTest`, `CanLogCommandTest`: also auto-detect, several CANables, no overwrite, unknown options.)
 - [x] Shutdown path flushes and closes (simulate Ctrl-C by calling the shutdown hook logic directly). (`CanLoggerTest`: called directly, and from another thread while the loop is blocked in `receive`.)
 - [x] `capture-info` on a small hand-written capture. (`CaptureInfoTest`; `ListPortsCommandTest` covers `list-ports` with fake candidates.)
-- [x] Hardware (`@Tag("hardware")`, manual): log 10 seconds from the running car in listen-only. (`CanLogHardwareTest`, written but never run. **It will fail at open until silent mode is solved.**)
+- [x] Hardware (`@Tag("hardware")`, manual): log 10 seconds from the running car in listen-only. (`CanLogHardwareTest`, written but never run. Needs the patched firmware.)
 
 ## Sniffing session checklist (run by the user, not by Claude)
-**Blocked:** `can-log` can't open the stock-firmware CANable in listen-only mode (see Status). Solve silent mode first (options in `can-core/CLAUDE.md`).
-
+0. Before leaving for the car: `list-ports` shows `CANable2 macvagdiag-silent-1`, the `120R` and `BOOT` headers on the board are open, and a bench run of `can-log --duration 5` (nothing connected) opens in `LISTEN_ONLY` and exits 0 with 0 frames.
 1. Wiring: OBD Y-splitter. CANable on CAN-H pin 6, CAN-L pin 14, ground pin 5. Pin 16 (12 V) **not** connected. CANable termination **off**.
 2. Start `can-log` with a note, ignition on, before starting VCDS.
 3. In VCDS: Auto-Scan. Then open a module with fault codes and read the freeze frame. Then open measuring blocks for the engine (groups 001, 011) for the v2 work.

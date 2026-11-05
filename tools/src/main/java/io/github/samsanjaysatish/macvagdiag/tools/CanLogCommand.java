@@ -77,9 +77,9 @@ final class CanLogCommand {
         err.println(PREFIX + "could not open " + port + " in listen-only mode: " + e.getMessage());
         if (String.valueOf(e.getMessage()).contains("LISTEN_ONLY")) {
             err.println(PREFIX + "The CANable 2.0 stock slcan firmware has no working silent mode (it accepts M1, "
-                    + "then O reopens the controller in normal mode, which ACKs frames on the car's bus), so the "
-                    + "adapter refuses LISTEN_ONLY. See 'Listen-only / silent mode' in can-core/CLAUDE.md. "
-                    + "can-log can't be used on the car until that is solved.");
+                    + "then O reopens the controller in normal mode, which ACKs frames on the car's bus), so "
+                    + "can-log only runs on the patched firmware. Flash it as described in "
+                    + "firmware/canable2/README.md; see also 'Listen-only / silent mode' in can-core/CLAUDE.md.");
         }
         err.println(PREFIX + "Nothing was transmitted and no capture file was created.");
     }

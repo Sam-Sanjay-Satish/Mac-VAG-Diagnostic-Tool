@@ -1,0 +1,98 @@
+From 8f498b8096c227351b8e3434271ec98c9f908fa1 Mon Sep 17 00:00:00 2001
+From: Sam Sanjay Satish <samsanjay@uvic.ca>
+Date: Thu, 5 Nov 2026 05:16:51 -0700
+Subject: [PATCH 2/3] can: make M1 silent mode actually take effect
+
+can_enable() forced Init.Mode = FDCAN_MODE_NORMAL before HAL_FDCAN_Init,
+so 'M1' followed by 'O' still opened the controller in normal mode: it
+ACKed every frame and could send error frames. The mode is now set once
+in can_init() (normal) and changed only by can_set_silent(); can_enable()
+keeps it, so M1 + O opens in FDCAN bus monitoring mode (no ACKs, no
+error frames, no transmission).
+
+Also, defence in depth:
+- can_tx() refuses to queue frames unless on the bus in normal mode.
+- can_enable() drops frames queued while off-bus, so they can't be
+  sent when the channel opens.
+- Add can_is_on_bus().
+---
+ inc/can.h |  1 +
+ src/can.c | 25 ++++++++++++++++++++++++-
+ 2 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/inc/can.h b/inc/can.h
+index 9b3fc89..adbe1c8 100644
+--- a/inc/can.h
++++ b/inc/can.h
+@@ -63,6 +63,7 @@ uint32_t can_tx(FDCAN_TxHeaderTypeDef *tx_msg_header, uint8_t *tx_msg_data);
+ uint32_t can_rx(FDCAN_RxHeaderTypeDef *rx_msg_header, uint8_t *rx_msg_data);
+ void can_process(void);
+ uint8_t is_can_msg_pending(uint8_t fifo);
++uint8_t can_is_on_bus(void);
+ FDCAN_HandleTypeDef* can_gethandle(void);
+ 
+ 
+diff --git a/src/can.c b/src/can.c
+index 456c375..767efb7 100644
+--- a/src/can.c
++++ b/src/can.c
+@@ -74,6 +74,9 @@ void can_init(void)
+     can_set_bitrate(CAN_BITRATE_125K);
+     can_set_data_bitrate(CAN_DATA_BITRATE_2M);
+     can_handle.Instance = FDCAN1;
++    // Default to normal mode. "M1" switches to bus monitoring (silent) mode,
++    // and can_enable() keeps whatever mode was set.
++    can_handle.Init.Mode = FDCAN_MODE_NORMAL;
+     bus_state = OFF_BUS;
+ }
+ 
+@@ -89,7 +92,9 @@ void can_enable(void)
+ 
+ 
+     	//can_handle.Init.Prescaler = prescaler;
+-    	can_handle.Init.Mode = FDCAN_MODE_NORMAL;
++    	// Init.Mode is NOT set here: it keeps the mode chosen by can_init() or
++    	// can_set_silent(). Stock firmware forced FDCAN_MODE_NORMAL here, which
++    	// silently undid "M1" and opened the bus in normal (ACKing) mode.
+     	can_handle.Init.AutoRetransmission = can_autoretransmit;
+         can_handle.Init.TransmitPause = DISABLE; // emz
+         can_handle.Init.ProtocolException = DISABLE; // emz
+@@ -120,6 +125,10 @@ void can_enable(void)
+         can_handle.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
+ 
+         
++        // Drop anything queued while off-bus, so stale frames are never sent
++        // when the channel opens.
++        txqueue.tail = txqueue.head;
++
+         HAL_FDCAN_Init(&can_handle);
+ 
+         //HAL_CAN_ConfigFilter(&can_handle, &filter);
+@@ -260,6 +269,13 @@ void can_set_autoretransmit(uint8_t autoretransmit)
+ // Send a message on the CAN bus. Called from USB ISR.
+ uint32_t can_tx(FDCAN_TxHeaderTypeDef *tx_msg_header, uint8_t* tx_msg_data)
+ {
++	// Only queue frames while on the bus in normal mode. In bus monitoring
++	// (silent) mode nothing is ever queued for transmission.
++	if (bus_state != ON_BUS || can_handle.Init.Mode != FDCAN_MODE_NORMAL)
++	{
++		return HAL_ERROR;
++	}
++
+ 	// If when we increment the head we're going to hit the tail
+ 	// (if we're filling the last spot in the queue)
+ 	if( ((txqueue.head + 1) % TXQUEUE_LEN) == txqueue.tail)
+@@ -337,6 +353,13 @@ uint8_t is_can_msg_pending(uint8_t fifo)
+ }
+ 
+ 
++// Return 1 if the CAN peripheral is on the bus
++uint8_t can_is_on_bus(void)
++{
++    return bus_state == ON_BUS;
++}
++
++
+ // Return reference to CAN handle
+ FDCAN_HandleTypeDef* can_gethandle(void)
+ {

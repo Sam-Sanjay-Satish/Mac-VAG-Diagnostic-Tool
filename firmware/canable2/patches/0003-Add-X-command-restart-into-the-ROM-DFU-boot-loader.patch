@@ -1,0 +1,149 @@
+From 109c5219360880b3e1dd6ded9ef6e3902ea7c38e Mon Sep 17 00:00:00 2001
+From: Sam Sanjay Satish <samsanjay@uvic.ca>
+Date: Thu, 5 Nov 2026 05:16:51 -0700
+Subject: [PATCH 3/3] Add 'X' command: restart into the ROM DFU boot loader
+
+Lets the firmware be updated over USB without opening the case to
+bridge the BOOT pins. Accepted only as the bare command "X" and only
+while off the bus. It sets a magic value in TAMP backup register 0 and
+resets; main() checks it before any initialisation and jumps to the
+STM32 system memory boot loader from a clean reset state.
+
+Also stops 'X' falling through to the frame parser: in stock firmware
+"X..." was parsed and transmitted as a CAN data frame.
+---
+ inc/system.h |  2 ++
+ src/main.c   |  3 +++
+ src/slcan.c  | 12 +++++++---
+ src/system.c | 63 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 77 insertions(+), 3 deletions(-)
+
+diff --git a/inc/system.h b/inc/system.h
+index 020c01b..23ce909 100644
+--- a/inc/system.h
++++ b/inc/system.h
+@@ -7,6 +7,8 @@ void system_init(void);
+ void system_irq_enable(void);
+ void system_irq_disable(void);
+ void system_hex32(char *out, uint32_t val);
++void system_enter_bootloader(void);
++void system_bootloader_check(void);
+ 
+ 
+ #endif
+diff --git a/src/main.c b/src/main.c
+index b59edcb..c8dd851 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -14,6 +14,9 @@
+ 
+ int main(void)
+ {
++    // Restart into the ROM boot loader if the "X" command asked for it
++    system_bootloader_check();
++
+     // Initialize peripherals
+     system_init();
+     can_init();
+diff --git a/src/slcan.c b/src/slcan.c
+index 72edfb4..297dea3 100644
+--- a/src/slcan.c
++++ b/src/slcan.c
+@@ -7,6 +7,7 @@
+ #include "can.h"
+ #include "error.h"
+ #include "printf.h"
++#include "system.h"
+ #include "slcan.h"
+ #include "usbd_cdc_if.h"
+ 
+@@ -287,10 +288,15 @@ int32_t slcan_parse_str(uint8_t *buf, uint8_t len)
+ 			// Transmit CANFD frame
+ 			break;
+ 
++		// Restart into the ROM DFU boot loader for a firmware update
++		// (added for macvagdiag). Only the bare command "X" is accepted, and
++		// only while off the bus. Never falls through to the frame parser:
++		// in stock firmware "X..." was parsed and transmitted as a CAN frame.
+ 		case 'X':
+-			// TODO: Firmware update
+-			#warning "TODO: Implement firmware update via command"
+-			break;
++			if (len != 1 || can_is_on_bus())
++				return -1;
++			system_enter_bootloader();
++			return 0; // not reached
+ 
+ 		// Invalid command
+ 		default:
+diff --git a/src/system.c b/src/system.c
+index d07d636..e506e33 100644
+--- a/src/system.c
++++ b/src/system.c
+@@ -159,3 +159,66 @@ void system_hex32(char *out, uint32_t val)
+ 		p--;
+ 	}
+ } 
++
++
++// Restart into the STM32 ROM DFU boot loader (added for macvagdiag).
++//
++// Jumping straight to the ROM boot loader from the running firmware would
++// need USB, clocks and interrupts torn down by hand. Instead, leave a magic
++// value in TAMP backup register 0 (it survives a system reset, not a power
++// cycle) and reset. system_bootloader_check() then jumps to the boot loader
++// from a clean reset state, before anything is initialised.
++//
++// The STM32G431 ROM boot loader uses USART, I2C, SPI and USB DFU only, not
++// FDCAN, so the CAN controller stays off while in the boot loader.
++#define BOOTLOADER_MAGIC   0xDF11B007UL
++#define SYSTEM_MEMORY_BASE 0x1FFF0000UL
++
++void system_enter_bootloader(void)
++{
++    __disable_irq();
++
++    RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN | RCC_APB1ENR1_RTCAPBEN;
++    (void)RCC->APB1ENR1;
++    PWR->CR1 |= PWR_CR1_DBP; // allow writes to the backup domain
++    TAMP->BKP0R = BOOTLOADER_MAGIC;
++    PWR->CR1 &= ~PWR_CR1_DBP;
++
++    NVIC_SystemReset();
++}
++
++
++// Call first thing in main(), before system_init().
++void system_bootloader_check(void)
++{
++    RCC->APB1ENR1 |= RCC_APB1ENR1_PWREN | RCC_APB1ENR1_RTCAPBEN;
++    (void)RCC->APB1ENR1;
++
++    if (TAMP->BKP0R != BOOTLOADER_MAGIC)
++    {
++        RCC->APB1ENR1 &= ~(RCC_APB1ENR1_PWREN | RCC_APB1ENR1_RTCAPBEN);
++        return;
++    }
++
++    // Clear the magic first, so the next reset starts the firmware again
++    PWR->CR1 |= PWR_CR1_DBP;
++    TAMP->BKP0R = 0;
++    PWR->CR1 &= ~PWR_CR1_DBP;
++    RCC->APB1ENR1 &= ~(RCC_APB1ENR1_PWREN | RCC_APB1ENR1_RTCAPBEN);
++
++    // Map system memory (ROM boot loader) at address 0
++    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
++    (void)RCC->APB2ENR;
++    SYSCFG->MEMRMP = (SYSCFG->MEMRMP & ~SYSCFG_MEMRMP_MEM_MODE) | SYSCFG_MEMRMP_MEM_MODE_0;
++
++    // Load the boot loader's stack pointer and jump to its reset handler
++    uint32_t boot_sp = *(volatile uint32_t *)SYSTEM_MEMORY_BASE;
++    uint32_t boot_pc = *(volatile uint32_t *)(SYSTEM_MEMORY_BASE + 4);
++    SCB->VTOR = SYSTEM_MEMORY_BASE;
++    __set_MSP(boot_sp);
++    __DSB();
++    __ISB();
++    ((void (*)(void))boot_pc)();
++
++    while (1);
++}

@@ -23,11 +23,10 @@ import org.junit.jupiter.api.io.TempDir;
 /** {@code can-log} end to end through {@link Main#run}, on fakes. */
 class CanLogCommandTest {
 
-    /** The message SlcanAdapter gives when asked for LISTEN_ONLY (its constant is package-private). */
-    private static final String SLCAN_REFUSAL = "SlcanAdapter refuses LISTEN_ONLY: the CANable 2.0 stock slcan "
-            + "firmware (normaldotcom/canable2-fw b158aa7) accepts the silent-mode command M1 but can_enable() "
-            + "resets the controller to normal mode on O, so the adapter would still ACK and send error frames "
-            + "on the bus. Not opening the port until that is resolved (see can-core/CLAUDE.md).";
+    /** The start of the message SlcanAdapter gives when asked for LISTEN_ONLY on stock firmware. */
+    private static final String SLCAN_REFUSAL = "SlcanAdapter refuses LISTEN_ONLY: /dev/cu.usbmodem1 runs "
+            + "firmware 'b158aa7', which has no verified silent mode. LISTEN_ONLY needs CANable firmware "
+            + "macvagdiag-silent-1 (see firmware/canable2/README.md).";
 
     @TempDir
     Path dir;
@@ -76,6 +75,7 @@ class CanLogCommandTest {
         String err = t.err();
         assertTrue(err.contains("could not open " + TestEnv.CANABLE_PORT + " in listen-only mode"), err);
         assertTrue(err.contains("no working silent mode"), err);
+        assertTrue(err.contains("firmware/canable2/README.md"), err);
         assertTrue(err.contains("can-core/CLAUDE.md"), err);
         assertTrue(err.contains("Nothing was transmitted and no capture file was created."), err);
         assertFalse(Files.exists(out));

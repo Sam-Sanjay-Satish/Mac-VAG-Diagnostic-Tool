@@ -58,6 +58,26 @@ class SlcanCodecTest {
         assertEquals("O\r", SlcanCodec.OPEN_COMMAND);
         assertEquals("C\r", SlcanCodec.CLOSE_COMMAND);
         assertEquals("M1\r", SlcanCodec.SILENT_MODE_COMMAND);
+        assertEquals("M0\r", SlcanCodec.NORMAL_MODE_COMMAND);
+        assertEquals("V\r", SlcanCodec.VERSION_COMMAND);
+    }
+
+    @Test
+    @DisplayName("V replies: the version is the text before the first space")
+    void versionOfAVersionReply() {
+        assertEquals(java.util.Optional.of("macvagdiag-silent-1"),
+                SlcanCodec.versionOf("macvagdiag-silent-1 github.com/Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool"));
+        assertEquals(java.util.Optional.of("b158aa7"), SlcanCodec.versionOf("b158aa7 github.com/normaldotcom/canable2.git"));
+        assertEquals(java.util.Optional.of("16e7497-dirty"), SlcanCodec.versionOf("16e7497-dirty "));
+    }
+
+    @Test
+    @DisplayName("frame lines, acks and space-led lines are not version replies")
+    void versionOfOtherLines() {
+        for (String line : new String[] {"", "z", "\u0007", "t7E880641000000000000", "T18DAF11023E00", "r7E08",
+                "b158aa7", " leading-space"}) {
+            assertEquals(java.util.Optional.empty(), SlcanCodec.versionOf(line), line);
+        }
     }
 
     // --- decoding hand-written lines ---

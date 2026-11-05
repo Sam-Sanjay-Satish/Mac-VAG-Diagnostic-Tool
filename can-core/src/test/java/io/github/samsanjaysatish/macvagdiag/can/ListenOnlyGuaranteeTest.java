@@ -73,18 +73,32 @@ class ListenOnlyGuaranteeTest {
     }
 
     @Test
-    @DisplayName("SlcanAdapter: LISTEN_ONLY open is refused and the fake serial port receives zero bytes")
+    @DisplayName("SlcanAdapter: LISTEN_ONLY on silent firmware opens with M1, send throws, no frame bytes reach the port")
     void slcanAdapter() {
         FakeSerialPort port = new FakeSerialPort();
         SlcanAdapter adapter = new SlcanAdapter(port, new FakeTimeSource());
+        port.feed(SlcanAdapterTest.SILENT_FIRMWARE_REPLY);
+
+        adapter.open(Bitrate.KBIT_500, AdapterMode.LISTEN_ONLY);
+        assertThrows(ListenOnlyViolationException.class, () -> adapter.send(SESSION_REQUEST));
+        adapter.close();
+
+        assertEquals("C\rV\rS6\rM1\rO\rC\r", port.writtenText(), "only commands, never a frame line");
+    }
+
+    @Test
+    @DisplayName("SlcanAdapter: LISTEN_ONLY on stock firmware is refused; only C and V reach the port")
+    void slcanAdapterOnStockFirmware() {
+        FakeSerialPort port = new FakeSerialPort();
+        SlcanAdapter adapter = new SlcanAdapter(port, new FakeTimeSource());
+        port.feed(SlcanAdapterTest.STOCK_FIRMWARE_REPLY);
 
         assertThrows(CanAdapterException.class, () -> adapter.open(Bitrate.KBIT_500, AdapterMode.LISTEN_ONLY));
         assertThrows(CanAdapterException.class, () -> adapter.send(SESSION_REQUEST));
-
         assertFalse(adapter.isOpen());
-        assertEquals(0, port.writtenByteCount(), "zero bytes, so zero frame bytes, reached the serial port");
         adapter.close();
-        assertEquals(0, port.writtenByteCount(), "close of a never-opened adapter writes nothing either");
+
+        assertEquals("C\rV\r", port.writtenText(), "no S, M1 or O, and no frame bytes");
     }
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.samsanjaysatish.macvagdiag.can;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * slcan (Lawicel) text protocol: pure encode/decode functions, no I/O. See the slcan reference in
@@ -30,15 +31,20 @@ public final class SlcanCodec {
     public static final String VERSION_COMMAND = "V\r";
 
     /**
-     * The CANable stock firmware's (nonstandard) silent-mode command, sent before {@code O}.
+     * The CANable firmware's (nonstandard) silent-mode command, sent while off the bus, before {@code O}.
      *
-     * <p><b>Not used.</b> In the stock CANable 2.0 firmware (normaldotcom/canable2-fw, commit b158aa7,
-     * {@code src/can.c}) {@code M1} only stores the mode, and {@code can_enable()} (run by {@code O})
-     * overwrites it with {@code FDCAN_MODE_NORMAL} before initializing the controller, so the adapter
-     * ends up in normal mode anyway. {@link SlcanAdapter} therefore refuses {@link AdapterMode#LISTEN_ONLY}.
-     * See {@code can-core/CLAUDE.md}.
+     * <p><b>Only works with our patched firmware</b> ({@code firmware/canable2}, {@code macvagdiag-silent-*}).
+     * In the stock CANable 2.0 firmware (normaldotcom/canable2-fw b158aa7) {@code can_enable()}, run by
+     * {@code O}, overwrites the mode with {@code FDCAN_MODE_NORMAL}, so the adapter ends up in normal mode
+     * anyway. {@link SlcanAdapter} checks the firmware version before relying on it. See
+     * {@code can-core/CLAUDE.md}.
      */
     public static final String SILENT_MODE_COMMAND = "M1\r";
+    /**
+     * Normal-mode command, sent before {@code O} when opening in {@link AdapterMode#NORMAL}. Our patched
+     * firmware keeps the mode between opens, so after an {@code M1} session normal mode must be set again.
+     */
+    public static final String NORMAL_MODE_COMMAND = "M0\r";
 
     static final int STANDARD_ID_DIGITS = 3;
     static final int EXTENDED_ID_DIGITS = 8;
@@ -79,6 +85,16 @@ public final class SlcanCodec {
             sb.append(String.format("%02X", frame.dataByte(i)));
         }
         return sb.append(CR).toString();
+    }
+
+    /**
+     * The firmware version in a reply to {@code V}: the CANable firmware answers
+     * {@code "<git version> <git remote>"}, so this is the text before the first space. Any line
+     * without a space (frames, acks) gives empty: slcan frame lines never contain a space.
+     */
+    public static Optional<String> versionOf(String line) {
+        int space = line.indexOf(' ');
+        return space <= 0 ? Optional.empty() : Optional.of(line.substring(0, space));
     }
 
     /** The bytes that go on the serial line for a command or frame string. */
