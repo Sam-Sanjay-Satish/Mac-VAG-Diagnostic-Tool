@@ -70,6 +70,26 @@ Each project has its own `CLAUDE.md` with everything specific to that layer: pur
 - [`server/CLAUDE.md`](server/CLAUDE.md): Spring Boot app, REST, web page, demo mode
 - [`mcp/CLAUDE.md`](mcp/CLAUDE.md): MCP tools for AI agents, validation, output rules
 
+## Label files (background for the labels/descriptions work, not built yet)
+How VCDS does it, from Ross-Tech's documentation. It is reference for designing our own lookup, **not** a source of data: Ross-Tech's `.LBL` files are copyrighted, so we don't copy or bundle them. Our descriptions must come from a source with a licence we can reuse (still an open question, see below).
+
+- **Why they exist:** the "data type" a module reports in measuring blocks is imprecise (it says "temperature", not coolant vs intake air). A label file adds the real meaning. It also adds help text for Coding and Adaptation channels. Without a label file VCDS makes an educated guess.
+- **Search order for folders:** `LABELS/USER/`, then `LABELS/[oem-name]/` (translated OEM versions only), then `LABELS/`.
+- **Search order for file names, within each folder:**
+  1. `TEST-NN.LBL`, where `NN` is the module address (`01` engine, `03` ABS). Meant for testing the format.
+  2. `XXX-XXX-XXX-XX.LBL`, the complete part number including suffix letters.
+  3. `XXX-XXX-XXX.LBL`, the part number without suffix letters.
+  4. `AA-BB.LBL`, where `AA` is the first two characters of the part number (usually the chassis code) and `BB` is the module address, e.g. `1J-17.LBL` for a Mk4 Golf cluster.
+- **Redirection (cases 3 and 4):**
+  - **Suffix table (original method):** one root part number covers many engines, told apart only by the suffix (e.g. `038 906 019 AF` is 100 HP, `AQ` is 150 HP). The generic file holds lines `REDIRECT,<specific file>.LBL,<suffix>,<suffix>,...` and VCDS loads the file whose list contains the module's suffix. Text after `;` is a comment. If the suffix isn't listed, VCDS uses the generic file itself.
+  - **Wildcard pattern (since VCDS 408.0, in `AA-BB.LBL` files):** lines `REDIRECT,<specific file>.LBL,<part number pattern>`, where `?` matches any one character, e.g. `REDIRECT,1J0-919-xxx.LBL,1J0-919-???-???`. Patterns are tried in order and the first match wins. This is also the only way to tell apart modules that report the same part number at two addresses (Mk5 cluster at 17 vs immobilizer at 25).
+  - The redirected file name is limited to 20 characters including `.lbl`.
+- **Takeaways for us:**
+  - Labels are keyed by **part number plus module address**, not by address alone. Our lookup needs part number, suffix and address, and "no label found" must be a normal result (return raw values, as the layer guides already say).
+  - Part-number redirection with suffix lists and `?` wildcards is worth copying as an idea in our own data format. We don't need to read the `.LBL` format itself.
+  - The `mcp` and `server` outputs show the matched label source (or none), like VCDS shows it in the top-left corner of the measuring-blocks screen.
+  - User-supplied overrides (like `LABELS/USER/`) are a good fit for a later feature.
+
 ## Car data and privacy
 - Raw captures and VCDS logs contain the VIN. Keep them in `local/` (git-ignored).
 - Committed test fixtures must have the VIN masked. Check this before every commit of fixture files.
@@ -90,7 +110,7 @@ Each project has its own `CLAUDE.md` with everything specific to that layer: pur
 - Don't commit or push unless the user asks. The remote is `origin` → GitHub `Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`.
 
 ## Open questions (don't decide these silently)
-- Source of fault-code descriptions and labels (not being worked on yet).
+- Source of fault-code descriptions and labels (not being worked on yet). Must be legally reusable in an MIT repo; Ross-Tech's `.LBL` files are not. See "Label files" above for how VCDS keys and redirects them.
 - Final project name.
 - From the sniffing session: installed modules and how VCDS discovers them, TP 2.0 + KWP vs ISO-TP + UDS per module, the exact requests for DTCs and freeze frames, VCDS pacing and Tester Present timing.
 - ~~The CANable slcan firmware's exact silent-mode command.~~ Resolved 2026-11-05: stock firmware's `M1` doesn't work, so we use our patched build `macvagdiag-silent-1` (`firmware/canable2/`), where `C`, `S6`, `M1`, `O` opens in bus monitoring mode. `SlcanAdapter` checks the build with `V`. Details in `can-core/CLAUDE.md`.

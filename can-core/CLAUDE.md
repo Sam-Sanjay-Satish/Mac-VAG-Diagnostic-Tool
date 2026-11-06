@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** built and tested against fakes (158 tests, `./gradlew :can-core:build` green). `SlcanAdapter` opens `LISTEN_ONLY` only on our patched firmware `macvagdiag-silent-1`, checked with `V` (see slcan reference). Not yet run against the real adapter; no hardware test yet. **Package:** `io.github.samsanjaysatish.macvagdiag.can`
+**Status:** built and tested against fakes (158 tests, `./gradlew :can-core:build` green). `SlcanAdapter` opens `LISTEN_ONLY` only on our patched firmware `macvagdiag-silent-1`, checked with `V` (see slcan reference). Bench-checked on the real adapter 2026-11-05 through `can-log` (`V` check passed, `C V S6 M1 O` open, 0 frames, clean close); no hardware test yet. **Package:** `io.github.samsanjaysatish.macvagdiag.can`
 **Depends on:** nothing (jSerialComm, SLF4J only). **Used by:** every other project.
 
 ## Purpose
@@ -60,7 +60,7 @@ Source read 2026-10-22:
 - **Decided 2026-11-05: option (a).** Patched firmware `macvagdiag-silent-1` in [`firmware/canable2/`](../firmware/canable2/README.md): upstream `b158aa7` + 3 patches (build fix; `can_enable()` keeps the stored mode, so `M1` + `O` opens in `FDCAN_MODE_BUS_MONITORING`, and `can_tx()` refuses frames unless on-bus in normal mode; `X` = restart into the ROM DFU boot loader, and no longer transmits a frame). Silent open sequence with it: `C`, `S6`, `M1`, `O`.
   - The user's adapter (Makerbase CANable V2.0 S, USB serial `2087338D3845`) was confirmed on 2026-11-05 to run stock `b158aa7` (USB product string `CANable2 b158aa7 github.com/normaldotcom/canable2.git`; ioreg's "USB Product Name" truncates it to 31 characters: `CANable2 b158aa7 github_com_nor`). Its full flash and option bytes are backed up in `local/firmware-backup/`.
   - **Status:** **flashed 2026-11-05** with `dfu-util` (`.bin` SHA-256 `0d5e2409…374f7b`). After flashing, the full USB product string is `CANable2 macvagdiag-silent-1 github.com/Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`; ioreg's short "USB Product Name" is `CANable2 macvagdiag_silent_1 gi` (macOS turns `-` into `_`). `V` replies `macvagdiag-silent-1 github.com/Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool\r`.
-  - **Java side done 2026-11-05:** `SlcanAdapter` pins the build through the `V` reply, not the USB description, because the reply comes from the firmware itself and doesn't depend on how the OS spells the USB name. The open sequence and refusals are described under `SlcanAdapter` above. **Still open:** running it against the real adapter, and physical proof that no ACKs are sent (needs a scope or a second CAN node).
+  - **Java side done 2026-11-05:** `SlcanAdapter` pins the build through the `V` reply, not the USB description, because the reply comes from the firmware itself and doesn't depend on how the OS spells the USB name. The open sequence and refusals are described under `SlcanAdapter` above. Bench-checked on the real adapter 2026-11-05 (see `tools/CLAUDE.md`). **Still open:** physical proof that no ACKs are sent (needs a scope or a second CAN node).
 
 ### Timestamps (`Z1`)
 **Not supported** by canable2-fw `b158aa7` (or canable-fw `9fddea4`): there is no `Z` case in `slcan_parse_str`, so it hits `default: return -1`, silently, since no error reply is sent. Received lines never carry a timestamp. `SlcanAdapter` stamps each frame on receipt in Java with the `TimeSource` (monotonic plus wall clock), so expect USB/OS jitter of about a millisecond.
