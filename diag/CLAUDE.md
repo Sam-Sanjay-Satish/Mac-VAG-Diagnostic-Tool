@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** built provisionally against hand-written bytes and fakes, before the sniffing capture (128 tests, `./gradlew :diag:build` green). Every protocol detail below that came from memory is marked **UNCONFIRMED** in code and here, and is kept in named constants so the capture can correct it in one place. Still pending the capture: the replay tests, the VCDS-log tests, and confirming or correcting each UNCONFIRMED item. **Package:** `io.github.samsanjaysatish.macvagdiag.diag`
+**Status:** built provisionally against hand-written bytes and fakes, before the sniffing capture (128 tests, `./gradlew :diag:build` green). Every protocol detail below that came from memory is marked **UNCONFIRMED** in code and here, and is kept in named constants so the capture can correct it in one place. **The capture exists now (2026-11-13); see "From the sniffing session 2026-11-13" below.** All 19 fault codes VCDS reported decode from the bus. It **contradicts** the KWP status-byte layout and shows that KWP DTCs and freeze frames need longer request shapes; those were added to the allowlist on 2026-11-15 (user's approval), but `diag`'s code doesn't use them yet. Still pending: those `diag` changes, the replay tests and the VCDS-log tests. **Package:** `io.github.samsanjaysatish.macvagdiag.diag`
 **Depends on:** `transport` (only the public channel API: `DiagnosticChannel`, `Response`, `ModuleRoute`, `ApplicationProtocol`, `RequestGuard`, `ForbiddenRequestException`) and `can-core`'s `TimeSource` and `Hex`. `NoBypassSourceTest` enforces this. **Used by:** `scan`.
 
 ## Purpose
@@ -115,21 +115,44 @@ Allowlisted but **not produced** by `diag` (no need yet): KWP `12 xx`, UDS `3E 8
   - VAG 5-digit codes (e.g. 16684 for P0300) relate to P-codes by an offset scheme. **Not hard-coded:** `VagCodeMapping` is an extension point, `NONE` by default. Implement it only from VCDS log pairs, with a test per pair.
 - The EDC17 may return extended DTC formats. Check against the capture.
 
+## From the sniffing session 2026-11-13
+Capture and VCDS log of the target car (git-ignored, `local/`; full analysis in `local/analysis/2026-11-13-sniffing-analysis.md`). Protocol per module is in `scan/CLAUDE.md`. In short: **01 Engine is KWP2000 over TP 2.0** (not UDS); 02, 08, 44 are KWP2000 over TP 2.0; 03, 09 and the gateway 19 are on TP 2.0 but answer `1A 9B` with `7F 1A 11` and are read with UDS-style `22` DIDs over the KWP channel; 05, 15, 17, 25, 2B, 77 are UDS over ISO-TP.
+
+**KWP2000, what VCDS sends and gets:**
+- `10 89` → `50 89`.
+- Identification: `1A 9B` (KWP modules), then `1A 91` (hardware number), `1A 97` (01: engine code `CJAA`), `1A 86` (serial / production data; the engine answers `7F 1A 78` first). `1A 90` is **never** sent; VCDS reads the VIN with OBD-II `09 02` on `7E0` instead (not on our allowlist, not needed).
+  - `1A 9B` layout (engine, 46 bytes after `5A 9B`): part number 12 ASCII (`03L997030M  `), software version 4 ASCII (`9983`), 4 bytes `03 00 C3 9E` (coding `0x00C39E` = `0050078` as VCDS shows it), 6 bytes workshop code (`… 42` = WSC 00066), component name 20 ASCII (`R4 2.0l TDI G000AG  `).
+- **DTCs: `18 00 FF 00`** (engine) and **`18 02 FF 00`** (every other KWP module and the gateway): the 4-byte ISO 14230 form, status byte then group `FF 00`. Response `58 [count] ([hi][lo][status])…` as assumed, e.g. engine `58 0C 2B A6 E0 1A 58 60 …` (12 codes), others `58 00`.
+- **Freeze frames: `12 00 04 [hi] [lo]`** (freeze frame number `00`, record access method `04` = by DTC, the 2-byte code), one request per entry of the DTC list, in list order. **For a code stored several times, repeating the same request returns the next stored record** (the engine has `04 01` and `05 44` twice and `00 87` three times; each request got a different record). Response layout, all 13 records:
+  `52 00 6C 01 [status] [priority] [frequency] [reset counter] [mileage km, 3 bytes] [time indication] [01 FF Bx xx xx date/time]` then (engine only) 7 environment values as `[formula] [a] [b]` triplets, then `04 [hi] [lo]`.
+  - Environment triplets use the classic KWP measuring-value formulas: `01` RPM = 0.2·a·b, `07` km/h = 0.01·a·b, `21` % = 100·b/a, `05` °C = a·(b−100)·0.1, `31` mg/stroke = a·b/40, `14` % = a·(b−128)/128. Every value checked matches VCDS.
+  - Date/time: low 17 bits = hour (5) · minute (6) · second (6); VCDS prints the KWP second **+ 1**. The date bits are near all-ones and VCDS prints the same date for every record, so the date can't be decoded from this car.
+- VCDS also sends `31 B8 00 00` (routine control, never allowed) to every TP 2.0 module and `21 11` / `21 59` (measuring blocks) to the engine for readiness. Not needed for v1.
+
+**KWP DTC codes and status (12 engine + 2 gateway pairs, all matched):**
+- VCDS code = decimal of the 16-bit value (`2B A6` → 011174; gateway `05 18` → 01304). `DtcCodes.vagFiveDigit` is right (VCDS zero-pads to 6 digits for the engine).
+- **P-code = `P` + the 16-bit value as 4 hex digits** for all 8 distinct engine codes (`2B A6` → P2BA6, `1A 58` → P1A58, `04 01` → P0401, `00 87` → P0087, …; all values < `0x4000`). The gateway codes have no P-code. This is what `VagCodeMapping` should implement for codes < `0x4000`, with these pairs as tests; the older offset scheme for codes ≥ `0x4000` (from memory) can't be checked on this car.
+- **Status byte** (VCDS prints it raw as 8 bits): bits 0–4 = the "- 00x" number after the P-code (seen 0, 1, 2, 4, 6); **bit 6 clear = "Intermittent"**; **bit 7 = "MIL ON"**; bit 5 was set in every record (meaning unknown). **`KwpDtcStatus` is wrong** (it has bit 7 = intermittent, bits 0–6 = symptom).
+
+**UDS, what VCDS sends and gets:**
+- `10 03` first (never `10 01`); `50 03 00 32 00 C8` (P2 50 ms, P2* 2 s) or `50 03 00 32 01 F4` (P2* 5 s).
+- Identification DIDs, one per request: `F19E` (ASAM dataset), `F1A2`, `F187` (part number), `F189` (software version), `F191` (hardware number), `F1A3` (hardware version), `F1A5`, `F1DF`, `F1A0`, `F1A1`, `F19A`, `F197` (system name), `0601`, `0600` (coding, e.g. 17: `37 0C 00` = VCDS `370C00`), `F1AA`, `F17E`, `F18C` (serial). `7F 22 31` for unsupported ones. **`F190` is never read.** Airbag subsystems: 39 DIDs in `06xx` / `07xx`.
+- **DTCs: `19 02 AE`** (mask `AE`, not `FF`). 17: `59 02 99 90 3E 12 08 90 59 1B 08`; 77: `59 02 19 90 4F 13 09 90 4E 13 09 00 00 16 09`; 15 answers `7F 19 78` first.
+  - VCDS number = decimal of the 24-bit DTC (`90 3E 12` → 9453074, `00 00 16` → "0022"). SAE code = J2012 of the first two bytes (`90 3E` → B103E). VCDS's failure-type text doesn't always equal the third byte (`90 3E 12` shown as `1B`; `00 00 16` shown as `U1066 00`): it comes from its database. Show ours raw.
+  - Status `08` = "Intermittent - Confirmed - Tested Since Memory Clear", `09` = "Confirmed - Tested Since Memory Clear": "Intermittent" ⇔ bit 0 clear, "Tested Since Memory Clear" ⇔ bit 4 clear.
+- **Freeze frame: `19 06 [DTC] FF` only** (extended data); **no `19 04`**. Layout (hypothesis that fits all 5 records): `01 [priority] [frequency]` `02 [reset counter] [mileage km, 3 bytes] [time indication] [5 bytes date/time]`, `FF` where not available. Mileage and hour/minute/second match VCDS exactly. VCDS printed the **PC's (wrong) date**, so don't compare UDS freeze-frame dates with the VCDS log.
+
+**Timing:** TP 2.0 request → first response 8–237 ms (median 44 ms); UDS 2–72 ms (median 24 ms). `78` is repeated every ≈ 500 ms (BCM, up to 2× per DID); longest wait seen after the first `78` ≈ 1 s. Our 1000 ms request timeout and 5000 ms pending timeout fit.
+
 ## UNCONFIRMED (correct from the capture / VCDS log, then update this list)
-- **KWP DTC request:** status byte `02` (`KwpDiagnosticService.DTC_STATUS_PARAMETER`), and whether VW modules accept the one-byte `18 xx` form at all (see open questions).
-- **KWP DTC record:** 3 bytes (`[hi][lo][status]`) after `58 [count]`.
-- **KWP display code:** 5-digit decimal of the 16-bit value (`DtcCodes.vagFiveDigit`, `41 2C` → `16684`).
-- **KWP status byte, every bit** (`KwpDtcStatus`): bit 7 = intermittent, bits 0–6 = symptom / elaboration code. This is from memory of VCDS's `35-10 ... Intermittent` display. ISO 14230-3 statusOfDTC has a different layout (storage state, warning lamp, readiness), and it isn't known which one VW follows. `raw()` is authoritative.
-- **KWP identification:** options `9B` and `90` (`IDENTIFICATION_OPTIONS`); the `1A 9B` block layout (not decoded); `1A 90` = 17 ASCII characters.
-- **UDS DTC request:** status mask `FF` (`UdsDiagnosticService.DTC_STATUS_MASK`).
-- **UDS freeze frame:** record `FF` = all for both `19 04` and `19 06` (`SNAPSHOT_RECORD_ALL`, `EXTENDED_DATA_RECORD_ALL`); which records VCDS reads; where mileage, date/time, priority and counters live.
-- **UDS identification DIDs:** `F187` / `F189` / `F191` / `F197` / `F190` (ISO 14229-1 names), and `0600` as VW coding (not ISO; from memory). Which DIDs VCDS actually reads.
-- **UDS status bit layout** (ISO 14229-1, from memory) and how VCDS words the combinations.
-- **Timings** (`DiagTimings`):
-  - Request timeout 1000 ms.
-  - Response-pending timeout 5000 ms (ISO P2*server).
-  - At most 20 `78`s and 30 s total after the first `78`.
-- **NRC names** in `Nrc`: from memory of ISO 14229-1 / 14230-3.
+Items answered by the 2026-11-13 capture are above; what is left:
+- **KWP DTC request:** our `18 02` (2 bytes) was not tried by VCDS; it uses `18 00 FF 00` / `18 02 FF 00`. Whether the short form works at all is unknown. Status byte `00` vs `02`: VCDS uses `00` for the engine only; why is unknown.
+- **KWP status byte bit 5**, and the other bits never seen set in this car.
+- **KWP freeze-frame header** bytes `6C 01` and the date bits.
+- **UDS freeze-frame record layout** (hypothesis above), and what VCDS does with `F1A5` / `F19A` / `F1DF`.
+- **UDS failure-type mapping** as VCDS shows it (database, not bytes).
+- **Timings** (`DiagTimings`) beyond what the capture shows: the 20-`78` / 30 s caps (never approached).
+- **NRC names** in `Nrc`: from memory of ISO 14229-1 / 14230-3 (`11`, `12`, `31`, `78` seen).
 
 ## Tests (all without hardware)
 - [x] Every parser driven by **hand-written response bytes** (`KwpReadDtcsTest`, `UdsReadDtcsTest`, `IdentificationTest`, `FreezeFrameTest`, `SessionTest`): zero DTCs, one, many; truncated responses; count/length mismatches; wrong echoes; unknown status bits; raw fields preserved.
@@ -161,12 +184,13 @@ Allowlisted but **not produced** by `diag` (no need yet): KWP `12 xx`, UDS `3E 8
   - **VCDS log pairs:** VAG 5-digit ↔ P-code (then implement `VagCodeMapping`), the KWP status byte ↔ VCDS wording (`35-10`, Intermittent/Static), UDS DTC ↔ VCDS's VW number, and freeze-frame fields ↔ VCDS's mileage / date / priority / counters.
 
 ## Open questions (need the capture and/or the user)
-- **Needs the user's approval if the capture confirms it: KWP `18` long form.** ISO 14230 reads DTCs with `18 [status] [group hi] [group lo]`, e.g. `18 02 FF 00` (all groups). I believe VW modules expect this 4-byte form. The approved allowlist allows only `18 xx`, so `diag` sends `18 02`. If the capture shows VCDS sending `18 02 FF 00`, the allowlist would need that exact shape, and only with the user's explicit approval.
-- **Needs the user's approval if the capture confirms it: KWP freeze frame.** ISO 14230 `12` is `12 [freeze frame number] [record access method] [...]`, so naming a DTC needs more than one byte. The allowlisted `12 xx` can't name a DTC, so `KwpDiagnosticService.readFreezeFrame` sends nothing and returns `NotAvailable`. The capture should show how VCDS reads KWP environment data (`12` long form, `18` with other parameters, or `17`). Any new shape needs the user's approval.
-- **KWP `1A`:** whether VCDS uses other options (e.g. `1A 91`, `1A 86`), and the `1A 9B` field layout (part number, component name, coding, workshop code).
-- **UDS:** which session VCDS uses before reading (`10 03`?). Whether `scan` should use `3E 80` (allowlisted, not produced here; it gets no response by design). Whether to decode P2/P2* from `50 03 [P2 hi] [P2 lo] [P2* hi] [P2* lo]` and feed them into `DiagTimings`.
-- **UDS freeze frame:** VW record numbers and DID layouts, so records can be split and fields decoded.
-- **EDC17:** extended DTC formats, if any.
+- **KWP `18` long form (confirmed by the 2026-11-13 capture).** VCDS reads DTCs with `18 02 FF 00` (and `18 00 FF 00` on the engine). **Approved by the user and added to `RequestGuard` on 2026-11-15**: exactly `18 00 FF 00` and `18 02 FF 00`. `DiagRequest.kwpReadDtcsByStatus` still builds `18 xx`; switch it.
+- **KWP freeze frame (confirmed by the capture).** VCDS sends `12 00 04 [hi] [lo]`. **Approved by the user and added to `RequestGuard` on 2026-11-15**: `12 00 04 xx xx` (5 bytes, `12 00 04` fixed, any DTC). `readFreezeFrame` still returns `NotAvailable` for KWP until it's built.
+- **`22` on TP 2.0 channels.** 03 ABS, 09 BCM and the 19 gateway are on TP 2.0 (KWP2000 channel) but refuse `1A 9B` (`7F 1A 11`) and answer UDS-style `22 [DID]` (one DID per request works). **Approved by the user and added to `RequestGuard` on 2026-11-15**: KWP2000 `22 xx xx` (3 bytes, one DID). `KwpDiagnosticService` doesn't send it yet. Not allowed: VCDS's 13-byte multi-DID form.
+- ~~KWP `1A` options and `1A 9B` layout~~: answered above (`1A 9B`, `91`, `97`, `86`; layout decoded). Adding `1A 91` / `1A 97` / `1A 86` needs no allowlist change.
+- ~~UDS session~~: VCDS uses `10 03`. Whether `scan` should switch from `10 01` is a `scan` decision. VCDS's Tester Present is `3E 80` on the functional ID `700` (see `transport/CLAUDE.md`). P2/P2* are 50 ms / 2–5 s.
+- **UDS freeze frame:** the record layout above is a hypothesis from 5 records; confirm before splitting records.
+- ~~EDC17 extended DTC formats~~: none; the EDC17 here is plain KWP2000 with 3-byte DTC records.
 
 ## Done when
 For every module in the capture, `diag` decodes the same codes, statuses and freeze-frame values that VCDS shows. Values VCDS labels but we can't decode yet are kept as raw.

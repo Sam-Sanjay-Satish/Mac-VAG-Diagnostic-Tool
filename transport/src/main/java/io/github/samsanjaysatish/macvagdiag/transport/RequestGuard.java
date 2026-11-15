@@ -20,7 +20,9 @@ import org.slf4j.LoggerFactory;
  * {@code RequestGuardTest} pins its exact contents so any change fails a test until it is reviewed.
  *
  * <p>Approved by the user on 2026-10-22, provisional until checked against the sniffing capture. KWP
- * {@code 21 xx} (measuring blocks) is deliberately excluded from v1.
+ * {@code 21 xx} (measuring blocks) is deliberately excluded from v1. Extended on 2026-11-15, with the user's
+ * approval, by the KWP {@code 18} / {@code 12} long forms and KWP {@code 22} that VCDS used in the 2026-11-13
+ * capture.
  */
 public final class RequestGuard {
 
@@ -97,9 +99,8 @@ public final class RequestGuard {
     }
 
     /**
-     * THE allowlist. Provisional, approved by the user on 2026-10-22 (minus KWP {@code 21 xx}); every entry is
-     * UNCONFIRMED until checked against what VCDS sends in the capture. Do not change without the user's
-     * explicit approval.
+     * THE allowlist. Approved by the user on 2026-10-22 (minus KWP {@code 21 xx}) and extended on 2026-11-15
+     * after the sniffing capture. Do not change without the user's explicit approval.
      *
      * <p>How much of each payload is checked:
      * <ul>
@@ -113,17 +114,25 @@ public final class RequestGuard {
      *       have no sub-function that writes, resets or changes state; the byte only selects which status
      *       group / identification block / freeze frame is read, and which ones VCDS uses is for the capture to
      *       tell. Pinning the length stops extra bytes from reaching an ECU with nonstandard parsing. ISO 14230
-     *       also defines longer forms (e.g. {@code 18 02 FF 00} with a group, {@code 12} with a record access
-     *       method); they are refused until the user approves them.</li>
-     *   <li>UDS {@code 22}: exactly one 2-byte data identifier, any value. Reading a DID has no side effects;
-     *       several DIDs in one request are refused.</li>
+     *       also defines longer forms; only the ones below are allowed.</li>
+     *   <li>KWP long forms, seen from VCDS in the 2026-11-13 capture and approved by the user on 2026-11-15:
+     *       {@code 18 00 FF 00} and {@code 18 02 FF 00} (status byte, then group {@code FF 00} = all groups),
+     *       those exact bytes only; and {@code 12 00 04 hh ll} (freeze frame {@code 00}, record access method
+     *       {@code 04} = by DTC, then any 2-byte DTC).</li>
+     *   <li>{@code 22} (UDS, and KWP2000 for the TP 2.0 modules that answer UDS-style DIDs, e.g. ABS, BCM,
+     *       gateway): exactly one 2-byte data identifier, any value. Reading a DID has no side effects; several
+     *       DIDs in one request are refused (VCDS sends a 13-byte six-DID form; we don't need it).</li>
      * </ul>
      */
     static final List<Entry> ALLOWLIST = List.of(
             entry(ApplicationProtocol.KWP2000, "10 89", 2, "start VW diagnostic session"),
             entry(ApplicationProtocol.KWP2000, "1A", 2, "read ECU identification"),
             entry(ApplicationProtocol.KWP2000, "18", 2, "read DTCs by status"),
+            entry(ApplicationProtocol.KWP2000, "18 00 FF 00", 4, "read DTCs by status 00, all groups"),
+            entry(ApplicationProtocol.KWP2000, "18 02 FF 00", 4, "read DTCs by status 02, all groups"),
             entry(ApplicationProtocol.KWP2000, "12", 2, "read freeze frame data"),
+            entry(ApplicationProtocol.KWP2000, "12 00 04", 5, "read freeze frame 00 by DTC"),
+            entry(ApplicationProtocol.KWP2000, "22", 3, "read data by identifier over TP 2.0 (one DID)"),
             entry(ApplicationProtocol.KWP2000, "3E", 1, "tester present"),
             entry(ApplicationProtocol.UDS, "10 01", 2, "default session"),
             entry(ApplicationProtocol.UDS, "10 03", 2, "extended diagnostic session"),

@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too, and **this layer is where the read-only guarantee is enforced**.
 
-**Status:** built provisionally against hand-written bytes and fakes, before the sniffing capture (320 tests, `./gradlew :transport:build` green). Every protocol detail below that came from memory is marked **UNCONFIRMED** in code and here, and is kept in named constants so the capture can correct it in one place. Still pending the capture: the replay tests, the hardware test, and confirming or correcting each UNCONFIRMED item. **Package:** `io.github.samsanjaysatish.macvagdiag.transport`
+**Status:** built provisionally against hand-written bytes and fakes, before the sniffing capture (357 tests, `./gradlew :transport:build` green). Every protocol detail below that came from memory is marked **UNCONFIRMED** in code and here, and is kept in named constants so the capture can correct it in one place. **The capture exists now (2026-11-13) and has been analysed; see "From the sniffing session 2026-11-13" below.** It confirms most of TP 2.0 and **contradicts** the CAN ID set, the TP 2.0 length field and the ISO-TP padding / flow control. The allowlist was extended on 2026-11-15 (user's approval); the rest of the code has **not** been changed yet: the CAN ID changes touch the defense-in-depth set and need the user's approval. Still pending: those code changes, the replay tests and the hardware test. **Package:** `io.github.samsanjaysatish.macvagdiag.transport`
 **Depends on:** `can-core`. **Used by:** `diag`.
 
 ## Purpose
@@ -36,14 +36,17 @@ The capture decides which modules use which transport. Expect TP 2.0 + KWP2000 f
   - If `RequestAuditListener.sending` throws, the request is not sent. This keeps the rule "no request reaches the car without an audit record".
 
 ### Approved allowlist
-**Approved by the user in the conversation on 2026-10-22, provisional until checked against what VCDS sends in the capture.** The starting list from this guide was approved **minus KWP `21 xx` (measuring blocks)**, which is deliberately left out of v1. Every entry is UNCONFIRMED until the capture. Any addition or widening (including longer forms of an existing service) needs the user's explicit approval again.
+**Approved by the user in the conversation on 2026-10-22**, **minus KWP `21 xx` (measuring blocks)**, which is deliberately left out of v1. **Extended on 2026-11-15** with the user's approval by the three shapes VCDS used in the 2026-11-13 capture: KWP `18 00 FF 00` / `18 02 FF 00`, KWP `12 00 04 hh ll`, and `22 hh ll` on KWP2000 (TP 2.0) channels. Any other addition or widening (including other longer forms of an existing service) needs the user's explicit approval again.
 
 | Protocol | Request | Exact length | What is checked |
 |---|---|---|---|
 | KWP2000 | `10 89` VW diagnostic session | 2 | SID and session byte exact |
 | KWP2000 | `1A xx` read ECU identification | 2 | SID; any one option byte |
 | KWP2000 | `18 xx` read DTCs by status | 2 | SID; any one status byte |
+| KWP2000 | `18 00 FF 00`, `18 02 FF 00` read DTCs by status, all groups | 4 | all four bytes exact (approved 2026-11-15) |
 | KWP2000 | `12 xx` read freeze frame | 2 | SID; any one parameter byte |
+| KWP2000 | `12 00 04 hh ll` read freeze frame by DTC | 5 | `12 00 04` exact; any 2-byte DTC (approved 2026-11-15) |
+| KWP2000 | `22 hh ll` read one DID over TP 2.0 | 3 | SID; any DID; only one DID per request (approved 2026-11-15) |
 | KWP2000 | `3E` tester present | 1 | SID only, nothing may follow |
 | UDS | `10 01` default session | 2 | SID and sub-function exact |
 | UDS | `10 03` extended session | 2 | SID and sub-function exact |
@@ -56,8 +59,9 @@ Why the length checks are strict:
 - **Session control** checks the sub-function, so `10 02` / `10 82` (UDS programming), `10 85` (KWP programming), `10 81`, `10 86`, `10 04`, a UDS `10 89` and a KWP `10 03` are all refused. No suppress-bit variants are allowed.
 - **`3E`** allows only the listed forms (KWP `3E` alone; UDS `3E 00` / `3E 80`). `3E 01`, `3E 02` and `3E 81` are refused.
 - **`19`** allows only sub-functions `01 02 04 06`, each at its ISO 14229 length.
-- **`18`, `1A`, `12` accept any parameter byte, but exactly one.** Reason: none of these services has a sub-function that writes, resets or changes state; the byte only picks which status group, identification block or freeze frame is read. Which values VCDS uses is for the capture to tell, and narrowing to an unconfirmed subset wouldn't add safety. Pinning the length stops extra bytes from reaching an ECU with nonstandard parsing. **Note:** ISO 14230 also defines longer forms that `diag` may need, e.g. `18 02 FF 00` (status plus group) and `12` with a record-access method. These are refused today. If the capture shows VCDS uses them, they need the user's approval.
-- **`22`**: any DID, but one DID per request.
+- **`18`, `1A`, `12` accept any parameter byte, but exactly one.** Reason: none of these services has a sub-function that writes, resets or changes state; the byte only picks which status group, identification block or freeze frame is read. Which values VCDS uses is for the capture to tell, and narrowing to an unconfirmed subset wouldn't add safety. Pinning the length stops extra bytes from reaching an ECU with nonstandard parsing.
+- **KWP long forms** (approved 2026-11-15): `18` only as the two exact 4-byte requests VCDS sent; `12` only as `12 00 04` + a 2-byte DTC. Every other 4-byte `18` and 5-byte `12` is refused (`RequestGuardTest` sweeps them all).
+- **`22`**: any DID, but one DID per request, on UDS and on KWP2000 channels. VCDS's 13-byte six-DID request is refused.
 
 Never allowed (each has a test, under both protocols): see the root `CLAUDE.md` list, plus programming sessions, plus anything not in the table. `GuardRejectionTest` sends each through `ChannelFactory` on a `SimulatedAdapter` and asserts **zero frames on the wire**. `RequestGuardTest.exhaustiveSweep` checks every SID × every second byte × lengths 1–8, for both protocols, against an independent restatement of the table.
 
@@ -94,14 +98,33 @@ Constants live in `IsoTpChannel` and `IsoTpChannel.Parameters.DEFAULTS`.
 - [x] ISO-TP with hand-written frames (`IsoTpChannelTest`): SF, FF+CF with flow control, our and the module's block size, STmin (ms and µs), wait frames (and too many), overflow, sequence errors, wraparound both ways, FC / CF / response timeouts, response pending, noise, padding on and off.
 - [x] `ChannelFactoryTest`: end to end on both transports, one channel at a time, adapter not ready, refused routes, the audit listener (and an audit failure blocking the send), payload copying, and the `BusGate` ID set.
 - [ ] **Replay (pending the capture):** run real channel setups and message exchanges from the sniffing capture through `ReplayAdapter` in interactive mode. This needs the tolerant `FrameMatcher` noted in `can-core`. It should cover at least one TP 2.0 setup + `10 89` + `1A 9B` + `18 xx` exchange, one UDS exchange if the engine uses UDS, and a keep-alive. Then correct the UNCONFIRMED constants and hand-written frames to match.
-- [x] Hardware (`@Tag("hardware")`, manual): open one TP 2.0 channel to the gateway, keep it alive 10 s, disconnect cleanly. No diagnostic requests beyond tester present. **Written 2026-11-05 as `Tp20HardwareTest`, never run.** It sends only setup, timing, `A3` channel tests (every 1 s, UNCONFIRMED) and `A8`; an audit listener fails the test if any diagnostic request reaches `sending`. Optional env: `MACVAGDIAG_PORT`, `MACVAGDIAG_TP20_ADDRESS` (hex, default `1F`). **Run it only after the capture has confirmed the TP 2.0 constants and the gateway address**, and never with VCDS connected (the adapter is in `NORMAL` mode).
+- [x] Hardware (`@Tag("hardware")`, manual): open one TP 2.0 channel to the gateway, keep it alive 10 s, disconnect cleanly. No diagnostic requests beyond tester present. **Written 2026-11-05 as `Tp20HardwareTest`, never run.** It sends only setup, timing, `A3` channel tests (every 1 s, UNCONFIRMED) and `A8`; an audit listener fails the test if any diagnostic request reaches `sending`. Optional env: `MACVAGDIAG_PORT`, `MACVAGDIAG_TP20_ADDRESS` (hex, default `1F`). **Run it only after the capture has confirmed the TP 2.0 constants and the gateway address**, and never with VCDS connected (the adapter is in `NORMAL` mode). 2026-11-13: the gateway is logical `1F` (confirmed), but it negotiates tx `32E`, which today's `DiagnosticCanIds` refuses, so the test would fail at setup until that set is widened.
+
+## From the sniffing session 2026-11-13
+Listen-only capture of a full VCDS Auto-Scan and a 01 fault-code read on the target car (`local/captures/`, analysis in `local/analysis/2026-11-13-sniffing-analysis.md`, decoder `local/analysis/decode.py`; all git-ignored). 500 kbit/s confirmed. With the ignition on and no tester, the diagnostic CAN is silent.
+
+**Confirmed (TP 2.0):**
+- Setup on `200`: tester `[addr] C0 00 10 00 03 01`, module on `200 + addr`: `00 D0 [rx lo] [rx hi] [tx lo] [tx hi] 01`, ID fields as decoded by `Tp20Channel.decodeId`, tester rx always `300`. Example: `200#1F C0 00 10 00 03 01` → `21F#00 D0 00 03 2E 03 01` (we send on `32E`, receive on `300`). Replies came after 1.2–13.6 ms. Absent modules don't answer at all (no `D6..D8` seen); VCDS retries the setup 10× at 77 ms.
+- VCDS's `A0` is exactly our `A0 0F 8A FF 32 FF`. Module `A1`s: `0F 8A FF 4A FF` (T1 100 ms, T3 10 ms), `0F 8A FF 4F FF` (T3 15 ms, gateway), `0F CA FF 54 FF` (02: T1 1000 ms, T3 20 ms). The time-byte encoding fits the observed spacing (VCDS sends its packets to the gateway ≈ 18 ms apart, honouring T3 15 ms).
+- Data opcodes, ACK `B[seq+1]`, block size 15 (module sends `0x` at each 15th packet), 2-byte length + 5 bytes in the first packet, 7 after, per-side sequence counting mod 16 across messages from channel open, no padding. `A3` → `A1`; `A8` ↔ `A8`.
+- VCDS never sends KWP `3E` on TP 2.0; it keeps channels alive with `A3` after **≈ 0.5–0.6 s** idle (median 541 ms, 97 samples), answered within 0–14 ms. Modules also send `A3` themselves (BCM during long `78` waits); VCDS answers `A1 0F 64 9C [module's T3 count] 9C`.
+
+**Contradicted (code not changed yet):**
+- **Negotiated TP 2.0 tx IDs** seen: `32E` (gateway, logical `1F`), `338` (logical `20`, VCDS 09), `33C` (logical `2C`, VCDS 08), `740` (01), `760` (02), `790` (03), `7A8` (logical `09`, VCDS 44). `DiagnosticCanIds.TP20_NEGOTIATED_TX_MIN/MAX` (`740..7BF`) would refuse the gateway, BCM and HVAC. Widening the set needs the user's approval.
+- **TP 2.0 length field has a flag:** every `7F xx 78` response pending arrives with length `80 03` (bit 15 set), e.g. `300#14 80 03 7F 22 78`; all other messages have it clear. `Tp20Channel.receiveData` takes all 16 bits as the length and would fail the channel with `PROTOCOL_ERROR` (happened 98 times in the Auto-Scan: engine `1A 86`, ABS, BCM, gateway). Mask the flag bits (at least bit 15) before comparing lengths.
+- `Tp20Channel.sendTimingReply` answers a module's `A3` with our `A0` bytes; VCDS uses `0F 64 9C xx 9C`. Probably harmless, unverified.
+- **ISO-TP / UDS IDs:** no module uses `7E0/7E8` or `7E1/7E9` for diagnostics. Seen request → response: `714 → 77E` (17), `732 → 79C` (05), `715 → 77F` (15), `711 → 77B` (25), `731 → 79B` (2B), `76B → 7D5` (77), and UDS Tester Present `3E 80` on the **functional ID `700`**. `7E0 → 7E8` carries only OBD-II `09 02` (VIN, not ours to send).
+- **ISO-TP framing:** VCDS pads its frames with **`55`** (ECUs pad with `AA`; OBD requests on `7E0` with `00`) and sends flow control **`30 00 01`** (STmin 1 ms). Ours: `AA`, `30 00 00`.
+- VCDS ends each UDS module with a one-byte frame `A8` on the request ID (e.g. `714#A8`). A VCDS quirk; don't copy.
+
+**Allowlist vs what VCDS sends** (full list in `diag/CLAUDE.md` and the analysis): KWP `18` and `12` long forms, and `22` on TP 2.0 channels were refused and are needed; **approved by the user and added on 2026-11-15** (see "Approved allowlist"). VCDS also sends `31 B8 00 00` (routine control, never allowed) to every TP 2.0 module and `21 11` / `21 59` (measuring blocks, excluded from v1) to the engine; we don't need them. No reset, clear, security, write, IO-control, programming or comm-control request appears anywhere in the capture.
 
 ## UNCONFIRMED (correct from the capture, then update this list)
-- **Allowlist:** every entry, and whether VCDS uses longer forms of `18` / `12` / `1A` or a parameter on KWP `3E`.
-- **TP 2.0:** setup ID `200`, reply ID `200 + addr`, address range `01..7F`, setup layout and `D0`/`D6..D8` opcodes, app type `01`, proposed tester-rx `300`, the negotiated-tx range `740..7BF`, the `A0`/`A1`/`A3`/`A8` opcodes, our timing bytes `0F 8A FF 32 FF`, the time-byte encoding and which of the module's T1/T3 we should honour, the data opcodes and ACK numbering, the big-endian 2-byte length (and whether its top bits are flags), the 200 ms setup/control timeouts, 100 ms default ACK timeout, 2 block retries and 10 not-ready ACKs.
-- **ISO-TP:** UDS IDs `7E0/7E8`, `7E1/7E9`, padding `AA`, our FC `30 00 00`, N_Bs/N_Cr 1000 ms, 10 wait frames.
-- **Mapping:** how VCDS module numbers (01, 02, 03, 17, 19, ...) map to TP 2.0 logical addresses (`scan` assumes they're equal, so gateway `19` → `0x19`; `Tp20HardwareTest` uses `0x1F`, the value commonly given for the gateway, from memory: one of them is wrong), and which modules use TP 2.0 or ISO-TP. That belongs to `scan`'s discovery; this layer only takes a `ModuleRoute`.
+Items confirmed or contradicted by the 2026-11-13 capture are listed above; what is left:
+- **TP 2.0:** the `D6..D8` negative opcodes (never seen); what the other top bits of the length mean (only bit 15 seen, on `78`); the 200 ms setup/control timeouts, 100 ms default ACK timeout, 2 block retries and 10 not-ready ACKs (no retries or not-ready ACKs happened); how long a module keeps an idle channel open (VCDS never idled > 0.6 s).
+- **ISO-TP:** N_Bs/N_Cr 1000 ms and 10 wait frames (no multi-frame requests or wait frames happened).
 
 ## Open questions (answer from the capture, then update this file)
-- Which modules use TP 2.0 vs ISO-TP. The module address → CAN ID mapping. Padding. The exact VCDS session and timing parameters. How often VCDS sends `A3` and Tester Present.
+- ~~Which modules use TP 2.0 vs ISO-TP. The module address → CAN ID mapping. Padding. The exact VCDS session and timing parameters. How often VCDS sends `A3` and Tester Present.~~ Answered by the 2026-11-13 capture, see above and `scan/CLAUDE.md`.
+- **Needs the user's approval:** widening `DiagnosticCanIds` to the IDs seen (TP 2.0 tx `32E`/`338`/`33C`; ISO-TP pairs `714/77E`, `732/79C`, `715/77F`, `711/77B`, `731/79B`, `76B/7D5`; functional `700` for `3E 80` only, if `scan` uses it).
 - `can-core` is an `api` dependency of this project, so `diag` and `scan` can see the public `CanAdapter.send` at compile time. The guard can only be bypassed by code that holds the adapter, and only app startup creates one (root rule: real hardware is created in exactly one place). If you want this enforced rather than left to convention, a later check in `diag` and `scan` could assert they never reference `CanAdapter`, or the dependency could become `implementation`. The second option would mean `ChannelFactory.create`'s signature can't mention can-core types.

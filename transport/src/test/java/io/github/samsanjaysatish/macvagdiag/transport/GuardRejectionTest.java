@@ -57,6 +57,7 @@ class GuardRejectionTest {
             "2E F1 90 00", "2E 00 01 02",           // write data by common identifier
             "30 01 07 00", "30 0A 03 01",           // IO control by local identifier
             "31 B8 00", "31 01",                    // start routine by local identifier
+            "31 B8 00 00",                          // ... exactly as VCDS sent it to every TP 2.0 module, 2026-11-13
             "34 00 00 00 01 00 10 00",              // request download
             "35 00 00 00 01 00 10 00",              // request upload
             "36 01 02 03",                          // transfer data
@@ -72,8 +73,11 @@ class GuardRejectionTest {
             Arguments.of(KWP2000, "10 89 01"), Arguments.of(KWP2000, "10"),
             Arguments.of(KWP2000, "3E 01"), Arguments.of(KWP2000, "3E 02"),
             Arguments.of(KWP2000, "1A"), Arguments.of(KWP2000, "1A 9B 00"),
-            Arguments.of(KWP2000, "18 02 FF 00"), Arguments.of(KWP2000, "12 00 01"),
-            Arguments.of(KWP2000, "22 F1 90"), Arguments.of(KWP2000, "19 02 FF"),
+            Arguments.of(KWP2000, "18 02 FF 01"), Arguments.of(KWP2000, "18 04 FF 00"), Arguments.of(KWP2000, "18 02 FF"),
+            Arguments.of(KWP2000, "12 00 01"), Arguments.of(KWP2000, "12 01 04 2B A6"), Arguments.of(KWP2000, "12 00 04 2B"),
+            Arguments.of(KWP2000, "22 F1 87 F1 89 F1 91 F1 A3 F1 A5 F1 DF"), Arguments.of(KWP2000, "22 F1"),
+            Arguments.of(KWP2000, "19 02 FF"), Arguments.of(KWP2000, "09 02"),
+            Arguments.of(UDS, "18 02 FF 00"), Arguments.of(UDS, "12 00 04 2B A6"),
             Arguments.of(KWP2000, "32 01"), Arguments.of(KWP2000, "33 01"), Arguments.of(KWP2000, "3C 01"),
             Arguments.of(KWP2000, "01 00"), Arguments.of(KWP2000, "00"), Arguments.of(KWP2000, "FF"),
             Arguments.of(UDS, "10 89"), Arguments.of(UDS, "10 04"), Arguments.of(UDS, "10 40"),
@@ -92,6 +96,8 @@ class GuardRejectionTest {
     static final List<Arguments> ALLOWED = List.of(
             Arguments.of(KWP2000, "10 89"), Arguments.of(KWP2000, "1A 9B"), Arguments.of(KWP2000, "18 02"),
             Arguments.of(KWP2000, "12 00"), Arguments.of(KWP2000, "3E"),
+            Arguments.of(KWP2000, "18 00 FF 00"), Arguments.of(KWP2000, "18 02 FF 00"),
+            Arguments.of(KWP2000, "12 00 04 2B A6"), Arguments.of(KWP2000, "22 04 A1"),
             Arguments.of(UDS, "10 01"), Arguments.of(UDS, "10 03"), Arguments.of(UDS, "3E 00"),
             Arguments.of(UDS, "19 01 FF"), Arguments.of(UDS, "19 02 FF"), Arguments.of(UDS, "19 04 00 04 01 FF"),
             Arguments.of(UDS, "19 06 00 04 01 FF"), Arguments.of(UDS, "22 F1 90"));

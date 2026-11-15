@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** `can-log`, `list-ports` and `capture-info` built and tested against fakes (62 tests, `./gradlew :tools:build` green). **`can-log` needs the patched CANable firmware `macvagdiag-silent-1`** ([`firmware/canable2`](../firmware/canable2/README.md), flashed on the user's adapter 2026-11-05). It opens the adapter only in `LISTEN_ONLY`, and `SlcanAdapter` allows that only after `V` reports that build (see `can-core/CLAUDE.md`, "Listen-only / silent mode"). On stock firmware it exits 1 at open with an explanation, having sent only `C` and `V` to the adapter (nothing on the bus) and created no file. **Bench-checked 2026-11-05** on the real adapter with nothing connected: `list-ports` found it, `can-log --duration 5` passed the `V` check, opened at 500 kbit/s in `LISTEN_ONLY`, logged 0 frames with 0 errors and exited 0, with the header correct. Not yet run on the car. Fixture sanitizer not started (needs `transport`). **Package:** `io.github.samsanjaysatish.macvagdiag.tools`
+**Status:** `can-log`, `list-ports` and `capture-info` built and tested against fakes (62 tests, `./gradlew :tools:build` green). **`can-log` needs the patched CANable firmware `macvagdiag-silent-1`** ([`firmware/canable2`](../firmware/canable2/README.md), flashed on the user's adapter 2026-11-05). It opens the adapter only in `LISTEN_ONLY`, and `SlcanAdapter` allows that only after `V` reports that build (see `can-core/CLAUDE.md`, "Listen-only / silent mode"). On stock firmware it exits 1 at open with an explanation, having sent only `C` and `V` to the adapter (nothing on the bus) and created no file. **Bench-checked 2026-11-05** on the real adapter with nothing connected: `list-ports` found it, `can-log --duration 5` passed the `V` check, opened at 500 kbit/s in `LISTEN_ONLY`, logged 0 frames with 0 errors and exited 0, with the header correct. **Run on the car 2026-11-13** (sniffing session, see below): a full VCDS Auto-Scan and a 01 fault-code read captured in `LISTEN_ONLY` with 0 errors. Fixture sanitizer not started (needs `transport`). **Package:** `io.github.samsanjaysatish.macvagdiag.tools`
 **Depends on:** `can-core` only (later also `transport` for the fixture sanitizer). **Used by:** nothing; these are command-line programs.
 
 ## Purpose
@@ -62,5 +62,13 @@ Requires JDK 25. `./gradlew :tools:run` uses the Gradle toolchain automatically.
 5. Run `capture-info` to confirm the capture isn't empty and the timestamps cover the whole session.
 6. Never run VCDS and this tool transmitting at the same time. The logger is silent, so it's fine alongside VCDS.
 
+**Lessons from the 2026-11-13 session:**
+- With the ignition on and no tester connected, the diagnostic CAN is silent: 0 frames is normal until VCDS talks.
+- The first Auto-Scan gave 0 frames because the CANable's wires, pushed into the splitter's female socket, weren't touching the contacts. A proper OBD plug (pigtail) fixed it. Check for frames within ~20 s of VCDS starting before letting a scan run.
+- VCDS's own clock was wrong, which only affects the VCDS log header and its UDS freeze-frame dates; captures are timed by the Mac.
+- Measuring blocks (step 3) weren't captured.
+
 ## Done when
 A full VCDS Auto-Scan has been captured from the car, checked with `capture-info`, and saved in `local/` next to the matching VCDS log.
+
+**Met 2026-11-13.** `local/captures/2026-11-13-150741-autoscan-2.log` (Auto-Scan, 2535 frames, 32 IDs, 194.5 s, 0 errors) and `local/captures/2026-11-13-151419-freezeframe-01.log` (01 fault codes and freeze frames, 454 frames, 0 errors), both checked with `capture-info` at the car and saved next to their VCDS logs in `local/vcds-logs/` (matching names; `NOTES.md` there records that the VCDS laptop's clock was wrong). The fixture sanitizer is still to do before any capture is committed.
