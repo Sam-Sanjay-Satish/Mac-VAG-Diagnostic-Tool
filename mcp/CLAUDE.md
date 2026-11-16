@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** v1 built (2026-10-23): the four read-only tools over Streamable HTTP, hosted in-process by `server`. 109 tests, `./gradlew :mcp:build` green. 2026-11-16: module enum follows scan's new 16-module table; `list_modules` has `gatewayStatus`, `NOT_INSTALLED` and `counts.notInstalled`; `read_fault_codes` status may be `GATEWAY_STATUS_ONLY`. Pending: the manual check with a real AI client against demo mode (needs `server` to mount the endpoint). **Package:** `io.github.samsanjaysatish.macvagdiag.mcp`
+**Status:** v1 built (2026-10-23): the four read-only tools over Streamable HTTP, hosted in-process by `server`. 109 tests, `./gradlew :mcp:build` green. 2026-11-16: module enum follows scan's new 16-module table; `list_modules` has `gatewayStatus`, `NOT_INSTALLED` and `counts.notInstalled`; `read_fault_codes` status may be `GATEWAY_STATUS_ONLY`. `server` mounts the endpoint at `/mcp` (see `server/CLAUDE.md` for the `claude mcp add` command). Pending: the manual check with a real AI client against demo mode. **Package:** `io.github.samsanjaysatish.macvagdiag.mcp`
 **Depends on:** `scan` (`api`) + the official MCP Java SDK 2.1.0 (`libs.mcp.bom` / `libs.mcp`: mcp-core + mcp-json-jackson3, MIT; approved 2026-10-22) + `jakarta.servlet-api` as `compileOnly` (Tomcat provides it at runtime). No Spring here: only `server` knows Spring. **Used by:** `server`.
 
 ## Purpose
@@ -111,10 +111,10 @@ Tool results with `isError: true` and one text message (MCP tool-execution error
 - [x] `ServletTransportTest`: the **real servlet + SDK transport + SDK server** through `FakeHttp`, a minimal in-test servlet harness (dynamic-proxy request/response/async context, no container, no sockets): initialize, `notifications/initialized`, `tools/list`, `tools/call` (SSE answer, structured + text, masked VIN, audited), bad arguments, unknown tool audited, Origin refused on POST/GET/DELETE (403, no session, scan untouched), repeated Origin, foreign Host (421), oversized body (413).
 - [x] `LocalhostOnlyTest`: accepted and refused hosts and origins, including prefix tricks (`localhost.evil.example`, `localhost:8080.evil.example`, `localhost:evil`).
 - Mutation checks: disabling the Host/Origin check failed 34 tests; skipping the unknown-key check failed 9 (the schema backstop still refused the extra fields).
-- [ ] Manual: connect Claude Code / Claude Desktop to the demo-mode server and ask it to scan the car (after `server` mounts the endpoint).
+- [ ] Manual: connect Claude Code / Claude Desktop to the demo-mode server (`/mcp`, mounted by `server`) and ask it to scan the car. Not done yet.
 
 ## Open questions / notes
-- `server` must mount the servlet with async support and keep its own Host/Origin/loopback checks in front. Real HTTP end to end is tested in `server`.
+- `server` mounts the servlet with async support and keep its own Host/Origin/loopback checks in front. Real HTTP end to end is tested in `server`.
 - Spring Boot's BOM in `server` may pick different Jackson 3 / Reactor versions than the SDK's (jackson 3.1.4, reactor-core 3.7.0); watch for runtime mismatches there.
 - The SDK's session keep-alive pings and idle-session sweep run on its defaults (30 min each).
 - `unit` is `null` everywhere for now: nothing is decoded with a unit yet (v2 measuring blocks will add units).

@@ -3,11 +3,20 @@
 Working rules for this repo. Read before changing anything.
 
 ## What this is
-An open-source, read-only VW/VAG diagnostic tool in Java that runs on macOS and talks to the car over CAN through a CANable 2.0 adapter (stock slcan firmware, appears as a serial port). Code name `macvagdiag`.
+An open-source, read-only VW/VAG diagnostic tool in Java that runs on macOS and talks to the car over CAN through a CANable 2.0 adapter (slcan, appears as a serial port; runs our patched firmware `macvagdiag-silent-1` so listen-only works, see `can-core/CLAUDE.md`). Code name `macvagdiag`.
 
 - **v1:** Auto-Scan every module: fault codes, status, freeze frame. Text report export. Done when the output matches a VCDS Auto-Scan of the same car on the same day.
 - **AI access:** an MCP server lets AI agents read data and decide on further tests. Read-only, no exceptions.
 - **Later:** live measuring blocks (v2), labels/descriptions, `.app` packaging.
+
+## Current state (2026-11-16)
+- **All layers built and corrected from the 2026-11-13 capture.** The v1 acceptance test passes on the replay: `autoScan()` against the real capture matches the VCDS Auto-Scan log (16 modules and statuses, all 19 fault codes with status wording, all 14 KWP freeze frames, 13 part numbers). See `scan/CLAUDE.md` (`AutoScanReplayTest`) for exactly what is compared and what isn't.
+- **Never transmitted on the car yet.** Our code has only listened (`can-log`). No hardware test has been run except `can-log`'s; the `can-core` hardware test isn't written.
+- **Next, in order:**
+  1. Bench, then car: write the `can-core` hardware test; run `Tp20HardwareTest` (`transport`) and `HardwareSmokeTest` (`server`). Check that the patched firmware opens in normal (transmitting) mode too.
+  2. Real Auto-Scan compared with a same-day VCDS Auto-Scan (v1 "done"). It also settles: single-DID `22` on 03/09/19 (VCDS only sent the six-DID form), our 500 ms `A3` keep-alive and 2 channel setups (VCDS: 10), how long an idle channel stays open, how a refused setup looks.
+  3. Manual MCP check with a real AI client against demo mode (`mcp/CLAUDE.md`).
+- **Known gaps in the output (not blocking v1):** no VIN and no header mileage (VCDS reads them with OBD-II `09 02` and `22 22 03`, not on our allowlist); no fault-code descriptions (raw codes; see "Label files"); UDS freeze frames kept raw; KWP freeze-frame dates not decodable on this car; ignition/engine state `UNKNOWN`; a timed-out `12 00 04` retried after the module answered returns the next stored record.
 
 Target car: 2013 VW Jetta TDI (CJAA, DSG), engine ECU 03L 997 030 M (EDC17). Diagnostic CAN on OBD pins 6/14 at 500 kbit/s (confirmed by the 2026-11-13 sniffing session). On this car the engine talks **TP 2.0 + KWP2000**, not UDS; most modules are TP 2.0, six are ISO-TP + UDS (table in `scan/CLAUDE.md`).
 
@@ -71,7 +80,9 @@ Each project has its own `CLAUDE.md` with everything specific to that layer: pur
 - [`mcp/CLAUDE.md`](mcp/CLAUDE.md): MCP tools for AI agents, validation, output rules
 
 ## Label files (background for the labels/descriptions work, not built yet)
-**Our label set:** the user has a set of label files (3,176 files: `.lbl`, `.clb`, `.crd`) bought from a friend, who made them over years of reverse engineering VW cars and sniffing. They are **not** Ross-Tech's files. They use the same format as VCDS labels and can fully replace VCDS labels. They are in `local/label-files/` (git-ignored), copied from the user's pendrive on 2026-11-15. We can read and use them locally, and we can build our lookup against the VCDS format. Whether they may be **committed or redistributed** in this MIT repo is not settled (the user would need to confirm the friend's terms), so keep them out of git and out of committed fixtures until then.
+**Our label set:** 3,176 files (`.lbl`, `.clb`, `.crd`) in `local/label-files/` (git-ignored), plus a plain-text copy in `local/label-files-decoded/` (`X.clb` as `X.lbl`, `X.crd` as `X.crd.txt`). Work from the decoded copy; leave the `.clb`/`.crd` originals untouched. The files use the VCDS label format and can fully replace VCDS labels, so build the lookup against that format.
+
+Read from `local/`, never commit the contents. Whether the set may be **committed or redistributed** in this MIT repo is not settled, so keep it out of git and out of committed fixtures until then.
 
 The rest of this section is how VCDS does lookup, from Ross-Tech's documentation (the format our files follow). It is reference for designing our lookup.
 
@@ -112,8 +123,9 @@ The rest of this section is how VCDS does lookup, from Ross-Tech's documentation
 - Don't commit or push unless the user asks. When asked, commit directly on `main` (no feature branches), with a lowercase one-line summary like the existing history and no co-author or tool trailers. The remote is `origin` → GitHub `Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`.
 
 ## Open questions (don't decide these silently)
-- Fault-code descriptions and labels (not being worked on yet). We have the friend's label set in `local/label-files/` for local use. Open: whether it can be committed or redistributed in an MIT repo, and where fault-code descriptions come from. See "Label files" above.
+- Fault-code descriptions and labels (not being worked on yet). Our label set lives in `local/label-files/` for local use. Open: whether it can be committed or redistributed in an MIT repo, and where fault-code descriptions come from. See "Label files" above.
 - Final project name.
+- **Waiting on the user (2026-11-16):** narrow transport's TP 2.0 range `740..7BF` to the IDs the car uses (`740`, `760`, `790`, `7A8`); drop `7E0/7E8` and `7E1/7E9`; whether demo mode ships the real capture; whether to add OBD-II `09 02` / `22 22 03` for VIN and mileage (allowlist change).
 - ~~From the sniffing session: installed modules and how VCDS discovers them, TP 2.0 + KWP vs ISO-TP + UDS per module, the exact requests for DTCs and freeze frames, VCDS pacing and Tester Present timing.~~ Answered by the 2026-11-13 capture (details in `scan/`, `diag/`, `transport/CLAUDE.md`; analysis in `local/analysis/`). 16 modules, found via the gateway installation list (`22 04 A1`). The engine is TP 2.0 + KWP2000, not UDS. Code updated 2026-11-15/16 in `transport`, `diag` and `scan`.
 - **Allowlist additions from the capture: approved and added 2026-11-15:** KWP `18 00 FF 00` / `18 02 FF 00` (DTCs), KWP `12 00 04 xx xx` (KWP freeze frames), KWP2000 `22 xx xx` on TP 2.0 channels (identification of 03, 09, 19 and the gateway list). Used by `diag` since 2026-11-15.
 - **CAN ID set widened with the user's approval (2026-11-15):** TP 2.0 tx `32E`/`338`/`33C` as exact IDs, and the ISO-TP pairs `714/77E`, `732/79C`, `715/77F`, `711/77B`, `731/79B`, `76B/7D5`, each request ID only with its own response ID. Functional `700` was **not** approved; Tester Present stays physical. **Needs the user's approval:** narrowing the old TP 2.0 range `740..7BF` (it also covers `76B` and five UDS response IDs) and removing `7E0/7E8`, `7E1/7E9` (no diagnostics seen on them; `scan` no longer uses them). VCDS also sends `31 B8 00 00` (routine control, never allowed) and `21 xx` (measuring blocks); we don't need either for v1.

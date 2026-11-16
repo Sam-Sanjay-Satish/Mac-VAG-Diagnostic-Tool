@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** v1 built and tested without hardware (95 tests, `./gradlew :server:build` green; 2026-11-16: gateway status and the installation list added to the JSON, sample data and report snapshots moved to the car's module table; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: a `ReplayAdapter` demo once a VIN-masked capture exists (the sanitizer exists since 2026-11-16; masked copies are in `local/sanitized/`, not yet committed as fixtures), and the manual hardware run. **Package:** `io.github.samsanjaysatish.macvagdiag.server`
+**Status:** v1 built and tested without hardware (95 tests, `./gradlew :server:build` green; 2026-11-16: gateway status and the installation list added to the JSON, sample data and report snapshots moved to the car's module table; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: the manual hardware run (`HardwareSmokeTest`, then a scan from the browser), and the user's decision on a `ReplayAdapter` demo with the real capture (VIN-masked fixtures exist since 2026-11-16, but only as test fixtures in `can-core`). **Package:** `io.github.samsanjaysatish.macvagdiag.server`
 **Depends on:** `scan` + Spring Boot 4.1.2 (`spring-boot-starter-webmvc`; approved by the user 2026-10-22; BOM via `platform(libs.spring.boot.bom)`, no dependency-management plugin). Tests: `spring-boot-starter-test`, `spring-boot-starter-webmvc-test`, scan's test fixtures. **Used by:** nobody; this is the app.
 
 ## Purpose
@@ -67,7 +67,7 @@ Status bar (adapter, demo, ignition/engine with reasons), "Run Auto-Scan" with l
 ## What to build
 - [x] **Startup wiring:** one `SlcanAdapter` creation site; config port or auto-detect; starts without an adapter.
   - [x] `--demo` on `ScanServiceFactory.demo` (simulated car).
-  - [ ] `--demo` on `ReplayAdapter` with a bundled VIN-masked capture: waits for the capture.
+  - [ ] `--demo` on `ReplayAdapter` with the real VIN-masked capture: **needs the user's decision** whether the app should ship it (today it lives only in `can-core`'s test fixtures; the replay would use `transport`'s test-only `CaptureEcu` idea, since our requests differ from VCDS's).
 - [x] **Bind to `127.0.0.1` only**, enforced at startup.
   - [x] `Host` check on all paths; `Origin` check; no CORS; JSON-only POST.
 - [x] **REST API** as above. No arbitrary-request, clear or write endpoint.
@@ -79,7 +79,7 @@ Status bar (adapter, demo, ignition/engine with reasons), "Run Auto-Scan" with l
   - Runtime versions: Boot's BOM lifts the SDK's Jackson 3.1.4 → 3.1.7 and reactor-core 3.7.0 → 3.8.8. `DemoAppTest.mcpOverHttp` runs a full MCP session over real Tomcat on these versions.
 - [x] Logging: Boot's Logback; no VIN in the app log.
 
-## Tests (all without hardware; 93)
+## Tests (all without hardware; 95)
 - [x] `ScanControllerTest` (`@WebMvcTest`, `FakeScanService` via `SwappableScanService`): JSON shapes of every endpoint; 503, 429 + `Retry-After` (limit and back-off), 409, 400 (10 malformed/unknown addresses, service not called), 404, 200 `NOT_RESPONDING`, failed scan, POST with parameters.
 - [x] `SecurityTest`: 12 wrong Hosts, no Host, two Hosts → 403 with the service not called; allowed hosts; 8 cross-origin Origins → 403 with no CORS headers (GET and POST); preflight gets no CORS headers; same-origin POST works without CORS headers; form / multipart / text / no content type → 415; security headers; `server.address=127.0.0.1`; the loopback customizer refuses `0.0.0.0`, `::` and a LAN address.
 - [x] `ReportExportTest`: report download vs `src/test/resources/snapshots/sample-report*.txt` (plain and VIN-masked), headers.
@@ -90,7 +90,7 @@ Status bar (adapter, demo, ignition/engine with reasons), "Run Auto-Scan" with l
 - [x] `HardwareSmokeTest` (`@Tag("hardware")`, manual, never run by Claude): real CANable connected, Auto-Scan gets answers. Then run a scan from the browser by hand.
 
 ## Open items
-- `ReplayAdapter` demo once a VIN-masked capture exists (until then the simulated `DemoCar`).
+- `ReplayAdapter` demo with the real capture: the user's decision (see above). Until then the simulated `DemoCar`.
 - Decide whether `/mcp` should also require a specific `Origin` (MCP spec: servers must validate Origin; the current rule allows any localhost origin).
 - Re-detect the CANable after a replug into a different USB socket (currently: restart).
 - The web page doesn't offer single-module reads or the module list yet (the API does); add if wanted.
