@@ -65,10 +65,10 @@ class ChannelFactoryTest {
     }
 
     @Test
-    @DisplayName("ISO-TP end to end through the factory: 22 F1 87 → 62 F1 87 ...")
+    @DisplayName("ISO-TP end to end through the factory: 03 22 F1 87 55 55 55 55 → 62 F1 87 ...")
     void isoTpEndToEnd() throws Exception {
         ScriptedBus script = new ScriptedBus(time)
-                .expect(0x7E0, "03 22 F1 87 AA AA AA AA", reply(0x7E8, "05 62 F1 87 30 33 AA AA"));
+                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "05 62 F1 87 30 33 AA AA"));
         ChannelFactory factory = ChannelFactory.create(adapter(script, AdapterMode.NORMAL), time);
 
         DiagnosticChannel ch = factory.open(ENGINE_UDS);
@@ -82,7 +82,7 @@ class ChannelFactoryTest {
     @DisplayName("KWP2000 over ISO-TP: the guard uses the route's protocol (10 89 allowed, 10 03 refused)")
     void kwpOverIsoTp() throws Exception {
         ScriptedBus script = new ScriptedBus(time)
-                .expect(0x7E0, "02 10 89 AA AA AA AA AA", reply(0x7E8, "02 50 89 AA AA AA AA AA"));
+                .expect(0x7E0, "02 10 89 55 55 55 55 55", reply(0x7E8, "02 50 89 AA AA AA AA AA"));
         ChannelFactory factory = ChannelFactory.create(adapter(script, AdapterMode.NORMAL), time);
         DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.KWP2000));
         assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("10 03"), TIMEOUT));
@@ -212,7 +212,7 @@ class ChannelFactoryTest {
         byte[] payload = Hex.parse("22 F1 90");
         ch.request(payload, TIMEOUT);
         assertEquals(List.of("22 F1 90"), audited);
-        assertEquals(List.of(CanFrame.standardHex(0x7E0, "03 22 F1 90 AA AA AA AA")), adapter.sentFrames());
+        assertEquals(List.of(CanFrame.standardHex(0x7E0, "03 22 F1 90 55 55 55 55")), adapter.sentFrames());
     }
 
     @Test
@@ -235,7 +235,16 @@ class ChannelFactoryTest {
     // ------------------------------------------------------------------ BusGate: CAN ID defense in depth
 
     @ParameterizedTest(name = "BusGate refuses to permit {0}")
-    @CsvSource({"000", "100", "1FF", "201", "300", "7DF", "7E8", "73F", "7C0", "7FF"})
+    @CsvSource({"000", "100", "1FF", "201", "300", "7DF", "7E8", "73F", "7C0", "7FF",
+            // functional 700 (not approved) and its neighbours
+            "6FF", "700", "701",
+            // neighbours of the TP 2.0 tx IDs approved 2026-11-15 (32E, 338, 33C)
+            "32D", "32F", "337", "339", "33B", "33D",
+            // neighbours of the ISO-TP request IDs approved 2026-11-15 (711, 714, 715, 731, 732; 76B is in 740..7BF)
+            "710", "712", "713", "716", "730", "733",
+            // 7D5 (telephone's response) is receive-only. The other new response IDs (77B 77E 77F 79B 79C) lie
+            // inside the TP 2.0 range 740..7BF and so were already permitted transmit IDs; pairing is enforced at open.
+            "7D5", "7D4", "7D6"})
     void busGateRefusesIdsOutsideTheSet(String id) {
         BusGate gate = new BusGate(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
         TransportException e = assertThrows(TransportException.class, () -> gate.permit(Integer.parseInt(id, 16)));
@@ -261,7 +270,7 @@ class ChannelFactoryTest {
     }
 
     @Test
-    @DisplayName("the fixed diagnostic set: 200, 740..7BF, 7E0, 7E1 and nothing else")
+    @DisplayName("the fixed transmit set: 200, 32E 338 33C, 711 714 715 731 732, 740..7BF, 7E0, 7E1 and nothing else")
     void fixedIdSet() {
         List<Integer> permitted = new ArrayList<>();
         for (int id = 0; id <= 0x7FF; id++) {
@@ -269,12 +278,89 @@ class ChannelFactoryTest {
                 permitted.add(id);
             }
         }
-        List<Integer> expected = new ArrayList<>(List.of(0x200));
+        List<Integer> expected = new ArrayList<>(List.of(0x200, 0x32E, 0x338, 0x33C, 0x711, 0x714, 0x715, 0x731, 0x732));
         for (int id = 0x740; id <= 0x7BF; id++) {
-            expected.add(id);
+            expected.add(id); // includes 76B
         }
         expected.add(0x7E0);
         expected.add(0x7E1);
         assertEquals(expected, permitted);
+    }
+
+    @Test
+    @DisplayName("TP 2.0 negotiable tx IDs: 32E 338 33C (exact) and 740..7BF, nothing else")
+    void negotiableTp20TxIds() {
+        List<Integer> negotiable = new ArrayList<>();
+        for (int id = 0; id <= 0x7FF; id++) {
+            if (DiagnosticCanIds.isNegotiableTp20TxId(id)) {
+                negotiable.add(id);
+            }
+        }
+        List<Integer> expected = new ArrayList<>(List.of(0x32E, 0x338, 0x33C));
+        for (int id = 0x740; id <= 0x7BF; id++) {
+            expected.add(id);
+        }
+        assertEquals(expected, negotiable);
+    }
+
+    @Test
+    @DisplayName("ISO-TP pairs are exactly 711/77B 714/77E 715/77F 731/79B 732/79C 76B/7D5 7E0/7E8 7E1/7E9")
+    void isoTpPairsPinned() {
+        assertEquals(java.util.Map.of(0x711, 0x77B, 0x714, 0x77E, 0x715, 0x77F, 0x731, 0x79B, 0x732, 0x79C,
+                0x76B, 0x7D5, 0x7E0, 0x7E8, 0x7E1, 0x7E9), DiagnosticCanIds.ISO_TP_REQUEST_TO_RESPONSE);
+    }
+
+    @ParameterizedTest(name = "ISO-TP pair {0} → {1} from the capture opens and sends on {0} only")
+    @CsvSource({"714, 77E", "732, 79C", "715, 77F", "711, 77B", "731, 79B", "76B, 7D5"})
+    void capturedIsoTpPairsOpen(String request, String response) throws Exception {
+        int req = Integer.parseInt(request, 16);
+        int resp = Integer.parseInt(response, 16);
+        ScriptedBus script = new ScriptedBus(time)
+                .expect(req, "03 22 F1 87 55 55 55 55", reply(resp, "05 62 F1 87 30 33 AA AA"));
+        ChannelFactory factory = ChannelFactory.create(adapter(script, AdapterMode.NORMAL), time);
+
+        try (DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(req, resp, ApplicationProtocol.UDS))) {
+            assertEquals(new Response.Received(Hex.parse("62 F1 87 30 33")), ch.request(Hex.parse("22 F1 87"), TIMEOUT));
+        }
+        script.assertComplete();
+        assertEquals(List.of(CanFrame.standardHex(req, "03 22 F1 87 55 55 55 55")), adapter.sentFrames());
+    }
+
+    @Test
+    @DisplayName("mismatched pairs (e.g. 714 → 79C), ±1 neighbours of every pair, 700 and 7DF: all refused, nothing sent")
+    void mismatchedNeighbouringAndFunctionalRoutesRefused() {
+        java.util.Map<Integer, Integer> pairs = DiagnosticCanIds.ISO_TP_REQUEST_TO_RESPONSE;
+        List<int[]> routes = new ArrayList<>();
+        for (var a : pairs.entrySet()) {
+            for (var b : pairs.entrySet()) {
+                if (!a.getKey().equals(b.getKey())) {
+                    routes.add(new int[] {a.getKey(), b.getValue()}); // another module's response ID
+                }
+            }
+            int req = a.getKey();
+            int resp = a.getValue();
+            routes.add(new int[] {req - 1, resp});
+            routes.add(new int[] {req + 1, resp});
+            routes.add(new int[] {req, resp - 1});
+            routes.add(new int[] {req, resp + 1});
+            routes.add(new int[] {0x700, resp});
+            routes.add(new int[] {0x7DF, resp});
+            routes.add(new int[] {resp, req}); // reversed
+        }
+        int refused = 0;
+        for (int[] r : routes) {
+            if (pairs.containsKey(r[0]) && pairs.get(r[0]) == r[1]) {
+                continue; // a neighbour that happens to be another valid pair (none today)
+            }
+            ChannelFactory factory = ChannelFactory.create(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
+            ModuleRoute route = new ModuleRoute.IsoTp(r[0], r[1], ApplicationProtocol.UDS);
+            TransportException e = assertThrows(TransportException.class, () -> factory.open(route),
+                    String.format("%03X/%03X", r[0], r[1]));
+            assertEquals(TransportException.Reason.DISALLOWED_CAN_ID, e.reason());
+            assertEquals(List.of(), adapter.sentFrames());
+            adapter.close();
+            refused++;
+        }
+        assertEquals(routes.size(), refused, "no neighbour is accidentally a valid pair");
     }
 }

@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * A UDS DTC status byte (ISO 14229-1 statusOfDTC). All eight bits are defined by the standard. The bit layout is
- * from memory of ISO 14229-1 (UNCONFIRMED against the capture), and how VCDS words each combination is for the
- * VCDS log to tell.
+ * A UDS DTC status byte (ISO 14229-1 statusOfDTC). All eight bits are defined by the standard; {@link #flags()}
+ * gives their ISO names. {@link #vcdsText()} words the status the way VCDS does, as far as the 2026-11-13 VCDS
+ * log shows it (statuses {@code 08} and {@code 09} only).
  *
  * @param raw the byte as received
  */
@@ -70,6 +70,38 @@ public record UdsDtcStatus(int raw) implements DtcStatus {
             names.add(f.isoName());
         }
         return List.copyOf(names);
+    }
+
+    /** VCDS's words: bit 0 (testFailed) clear. */
+    public static final String VCDS_INTERMITTENT = "Intermittent";
+    /** VCDS's words: bit 3 (confirmedDTC) set. */
+    public static final String VCDS_CONFIRMED = "Confirmed";
+    /** VCDS's words: bit 4 (testNotCompletedSinceLastClear) clear. */
+    public static final String VCDS_TESTED_SINCE_MEMORY_CLEAR = "Tested Since Memory Clear";
+
+    /**
+     * The words VCDS prints for this status, in its order. From the 2026-11-13 VCDS log: {@code 08} =
+     * "Intermittent - Confirmed - Tested Since Memory Clear", {@code 09} = "Confirmed - Tested Since Memory
+     * Clear". UNCONFIRMED: what VCDS prints for the other bits (pending, warning lamp, ...); they are not worded
+     * here, {@link #flags()} still has them.
+     */
+    public List<String> vcdsWords() {
+        List<String> words = new ArrayList<>(3);
+        if (!has(Flag.TEST_FAILED)) {
+            words.add(VCDS_INTERMITTENT);
+        }
+        if (has(Flag.CONFIRMED_DTC)) {
+            words.add(VCDS_CONFIRMED);
+        }
+        if (!has(Flag.TEST_NOT_COMPLETED_SINCE_LAST_CLEAR)) {
+            words.add(VCDS_TESTED_SINCE_MEMORY_CLEAR);
+        }
+        return List.copyOf(words);
+    }
+
+    /** {@link #vcdsWords()} joined as VCDS prints them, e.g. {@code Confirmed - Tested Since Memory Clear}. */
+    public String vcdsText() {
+        return String.join(" - ", vcdsWords());
     }
 
     @Override

@@ -15,14 +15,24 @@ import java.util.regex.Pattern;
  * passed to {@link ScanService} has always been validated, and untrusted input (MCP arguments, URL paths) is
  * rejected before any request is built.
  *
- * <p><b>UNCONFIRMED</b> (from memory, to be corrected from the sniffing capture and the VCDS log):
+ * <p><b>The table is the target car's</b> (2013 Jetta TDI), confirmed by the 2026-11-13 capture of a VCDS
+ * Auto-Scan: the 16 modules the gateway's installation list reports as installed, with the link each one answered
+ * on.
  * <ul>
- *   <li>the list itself and the names;</li>
- *   <li>the TP 2.0 logical address of each module, assumed equal to the VCDS address (so module {@code 17} is set
- *       up with logical address {@code 0x17});</li>
- *   <li>which modules use ISO-TP + UDS instead. The engine (EDC17) and the transmission get ISO-TP
- *       {@code 7E0/7E8} and {@code 7E1/7E9} as a second link to try after TP 2.0.</li>
+ *   <li><b>TP 2.0 + KWP2000:</b> 01, 02, 03, 08, 09, 19, 44, at the TP 2.0 logical address the gateway lists, which
+ *       is <i>not</i> the VCDS address for most of them (08 → {@code 2C}, 09 → {@code 20}, 19 → {@code 1F},
+ *       44 → {@code 09}). 01 and 02 have no ISO-TP link: {@code 7E0/7E8} only carried an OBD-II VIN read.</li>
+ *   <li><b>ISO-TP + UDS:</b> 05, 15, 17, 25, 2B, 77 on fixed CAN ID pairs (the list doesn't contain them). The
+ *       gateway also lists a TP 2.0 address for these, but none answered there (VCDS tried and fell back), so we
+ *       don't try TP 2.0 for them.</li>
+ *   <li><b>2E Media Player and 56 Radio:</b> installed, but "Cannot be reached" on this car (they answered nothing
+ *       to VCDS). Kept with their listed TP 2.0 address so a scan reports them like VCDS does.</li>
+ *   <li><b>04 Steering Angle:</b> no link of its own. VCDS never contacts it; its status comes only from the
+ *       gateway's installation list.</li>
  * </ul>
+ * 16 Steering Wheel and 46 Central Convenience (in the first, from-memory table) are not installed on this car and
+ * were dropped: their links were never seen. A module the gateway lists that isn't here is reported by the
+ * Auto-Scan as installed but not in the table, and not contacted.
  */
 public final class ModuleAddress implements Comparable<ModuleAddress> {
 
@@ -31,19 +41,22 @@ public final class ModuleAddress implements Comparable<ModuleAddress> {
     private static final Map<Integer, ModuleAddress> KNOWN = new LinkedHashMap<>();
 
     static {
-        kwp(0x01, "Engine", new ModuleLink.IsoTp(0x7E0, 0x7E8, Protocol.UDS));
-        kwp(0x02, "Transmission", new ModuleLink.IsoTp(0x7E1, 0x7E9, Protocol.UDS));
-        kwp(0x03, "ABS Brakes");
-        kwp(0x08, "Auto HVAC");
-        kwp(0x09, "Central Electrics");
-        kwp(0x15, "Airbags");
-        kwp(0x16, "Steering Wheel");
-        kwp(0x17, "Instruments");
-        kwp(0x19, "CAN Gateway");
-        kwp(0x25, "Immobilizer");
-        kwp(0x44, "Steering Assist");
-        kwp(0x46, "Central Convenience");
-        kwp(0x56, "Radio");
+        tp20(0x01, "Engine", 0x01);
+        tp20(0x02, "Transmission", 0x02);
+        tp20(0x03, "ABS Brakes", 0x03);
+        gatewayOnly(0x04, "Steering Angle");
+        uds(0x05, "Access/Start Authorization", 0x732, 0x79C);
+        tp20(0x08, "Auto HVAC", 0x2C);
+        tp20(0x09, "Central Electrics", 0x20);
+        uds(0x15, "Airbags", 0x715, 0x77F);
+        uds(0x17, "Instruments", 0x714, 0x77E);
+        tp20(0x19, "CAN Gateway", 0x1F);
+        uds(0x25, "Immobilizer", 0x711, 0x77B);
+        uds(0x2B, "Steering Column Lock", 0x731, 0x79B);
+        tp20(0x2E, "Media Player", 0x54);
+        tp20(0x44, "Steering Assist", 0x09);
+        tp20(0x56, "Radio", 0x52);
+        uds(0x77, "Telephone", 0x76B, 0x7D5);
     }
 
     private static final List<ModuleAddress> KNOWN_LIST = List.copyOf(KNOWN.values());
@@ -63,12 +76,25 @@ public final class ModuleAddress implements Comparable<ModuleAddress> {
         this.links = List.copyOf(links);
     }
 
-    /** A module reached over TP 2.0 at logical address = VCDS address (UNCONFIRMED), then the {@code extra} links. */
-    private static void kwp(int address, String name, ModuleLink... extra) {
-        List<ModuleLink> links = new java.util.ArrayList<>();
-        links.add(new ModuleLink.Tp20(address));
-        links.addAll(List.of(extra));
-        KNOWN.put(address, new ModuleAddress(address, name, links));
+    /** KWP2000 over TP 2.0 at the logical address the gateway lists for it. */
+    private static void tp20(int address, String name, int logicalAddress) {
+        put(address, name, List.of(new ModuleLink.Tp20(logicalAddress)));
+    }
+
+    /** UDS over ISO-TP on a fixed request/response ID pair. */
+    private static void uds(int address, String name, int requestId, int responseId) {
+        put(address, name, List.of(new ModuleLink.IsoTp(requestId, responseId, Protocol.UDS)));
+    }
+
+    /** No link of its own: only the gateway's installation list says anything about it. */
+    private static void gatewayOnly(int address, String name) {
+        put(address, name, List.of());
+    }
+
+    private static void put(int address, String name, List<ModuleLink> links) {
+        if (KNOWN.put(address, new ModuleAddress(address, name, links)) != null) {
+            throw new IllegalStateException("Duplicate module " + address);
+        }
     }
 
     /** Every known module, in address order. */
@@ -91,6 +117,11 @@ public final class ModuleAddress implements Comparable<ModuleAddress> {
                     + " is not two hex digits like \"08\"; " + hint());
         }
         return of(Integer.parseInt(text, 16));
+    }
+
+    /** {@link #of(int)} without the exception. */
+    public static Optional<ModuleAddress> tryOf(int address) {
+        return Optional.ofNullable(KNOWN.get(address));
     }
 
     /** {@link #parse(String)} without the exception. */
@@ -137,14 +168,19 @@ public final class ModuleAddress implements Comparable<ModuleAddress> {
         return String.format("%02X", address);
     }
 
-    /** E.g. {@code Instruments}. UNCONFIRMED wording. */
+    /** E.g. {@code Instruments}. Our own wording, close to VCDS's. */
     public String name() {
         return name;
     }
 
-    /** The links to try, in order. UNCONFIRMED (see the class comment). */
+    /** The links to try, in order (see the class comment). Empty for a module with no link of its own (04). */
     public List<ModuleLink> links() {
         return links;
+    }
+
+    /** True if the module can be contacted at all; false for 04 Steering Angle (gateway status only). */
+    public boolean hasLink() {
+        return !links.isEmpty();
     }
 
     @Override

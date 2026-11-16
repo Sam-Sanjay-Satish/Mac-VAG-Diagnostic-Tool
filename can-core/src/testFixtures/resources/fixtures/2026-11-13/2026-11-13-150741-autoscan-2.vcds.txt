@@ -1,0 +1,596 @@
+Wednesday,11,November,2026,19:31:00:00009
+VCDS -- Windows Based VAG/VAS Emulator Running on Windows 10 x64
+VCDS Version: 26.9.0.3
+Data version: 20260828 DS378.0
+www.Ross-Tech.com
+
+
+VIN: 3VW00000XD0000000   License Plate: 
+Mileage: 366280km-227595mi   Repair Order: 
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+Chassis Type: AJ-VW36 (6N0)
+Scan: 01 02 03 05 08 09 15 17 19 25 2B 2E 44 56 77
+
+VIN: 3VW00000XD0000000   Mileage: 366280km-227595miles
+
+01-Engine -- Status: Malfunction 0010
+02-Auto Trans -- Status: OK 0000
+03-ABS Brakes -- Status: OK 0000
+04-Steering Angle -- Status: OK 0000
+05-Acc/Start Auth. -- Status: OK 0000
+08-Auto HVAC -- Status: OK 0000
+09-Cent. Elect. -- Status: OK 0000
+15-Airbags -- Status: OK 0000
+17-Instruments -- Status: Malfunction 0010
+19-CAN Gateway -- Status: Malfunction 0010
+25-Immobilizer -- Status: OK 0000
+2B-Steer. Col. Lock -- Status: OK 0000
+2E-Media Player 3 -- Status: Cannot be reached 1100
+44-Steering Assist -- Status: OK 0000
+56-Radio -- Status: Cannot be reached 1100
+77-Telephone -- Status: Malfunction 0010
+ 
+-------------------------------------------------------------------------------
+Address 01: Engine (CJA)       Labels: 03L-906-022-CBE.clb
+   Part No SW: 03L 997 030 M    HW: 03L 907 309 AA
+   Component: R4 2.0l TDI G000AG  9983  
+   Revision: 12H15---    Serial number:               
+   Coding: 0050078
+   Shop #: WSC 00066 000 00000
+   VCID: 387F9DE74B53825DB8-806C
+   VINID: 0E69DC70745A2547431820492483B531B5
+
+12 Faults Found:
+011174 - NOx Emissions Exceeded 
+               P2BA6 - 000 - SCR Catalyst Malfunction - MIL ON
+             Freeze Frame:
+                    Fault Status: 11100000
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:31
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Load: 0.0 %
+                    Pressure: 1004.3 mbar
+                    Temperature: 13.5°C
+                    Mass Air / Rev.: 260.0 mg/str
+                    Temperature: 48.6°C
+
+006744 - NOx Catalyst 
+               P1A58 - 000 - Regeneration Required
+             Freeze Frame:
+                    Fault Status: 01100000
+                    Fault Priority: 6
+                    Fault Frequency: 255
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:32
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Load: 0.0 %
+                    Pressure: 1004.3 mbar
+                    Temperature: 13.5°C
+                    Mass Air / Rev.: 260.0 mg/str
+                    Temperature: 48.6°C
+
+006470 - Control Module 1 for Coolant Fan 
+               P1946 - 000 - Defective - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 255
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:44
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Temperature: 48.6°C
+                    Temperature: 96.3°C
+                    Temperature: 13.5°C
+                    Lambda: 34.7 %
+                    Lambda: 0.0 %
+
+001025 - EGR System 
+               P0401 - 001 - Insufficient Flow
+             Freeze Frame:
+                    Fault Status: 01100001
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:14:01
+
+             Freeze Frame:
+                    RPM: 805 /min
+                    Speed: 0.0 km/h
+                    Voltage: 13.83 V
+                    Load: 71.8 %
+                    Load: 100.0 %
+                    Mass Air / Rev.: 225.0 mg/str
+                    Mass Air / Rev.: 350.0 mg/str
+
+009231 - Exhaust Gas Recirculation System 
+               P240F - 000 - Response too Slow - MIL ON
+             Freeze Frame:
+                    Fault Status: 11100000
+                    Fault Priority: 2
+                    Fault Frequency: 2
+                    Reset counter: 255
+                    Mileage: 362263 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:31:21
+
+             Freeze Frame:
+                    RPM: 1472 /min
+                    Speed: 75.0 km/h
+                    Load: 69.0 %
+                    Mass Air / Rev.: 0.0 mg/str
+                    Mass Air / Rev.: 145.0 mg/str
+                    Mass Air / Rev.: 275.0 mg/str
+                    Mass Air / Rev.: 440.0 mg/str
+
+001681 - Fan 1 Control Circuit 
+               P0691 - 000 - Short to GND - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 66
+                    Reset counter: 255
+                    Mileage: 362340 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 18:08:13
+
+             Freeze Frame:
+                    RPM: 1794 /min
+                    Speed: 39.0 km/h
+                    Temperature: 18.9°C
+                    Temperature: 74.7°C
+                    Temperature: 15.3°C
+                    Lambda: 9.5 %
+                    Lambda: 0.0 %
+
+001348 - Sensor 1 for Exhaust Temp Bank 1 (G235) 
+               P0544 - 000 - Circuit Malfunction - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 14
+                    Reset counter: 255
+                    Mileage: 363948 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 12:38:57
+
+             Freeze Frame:
+                    RPM: 2990 /min
+                    Speed: 93.0 km/h
+                    Voltage: 13.83 V
+                    Temperature: 88.2°C
+                    Temperature: 930.0°C
+                    Temperature: 516.0°C
+                    Temperature: 444.0°C
+
+001025 - EGR System 
+               P0401 - 002 - Insufficient Flow - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100010
+                    Fault Priority: 2
+                    Fault Frequency: 7
+                    Reset counter: 255
+                    Mileage: 365708 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 16:37:56
+
+             Freeze Frame:
+                    RPM: 1541 /min
+                    Speed: 64.0 km/h
+                    Voltage: 13.91 V
+                    Load: 92.9 %
+                    Load: 100.0 %
+                    Mass Air / Rev.: 360.0 mg/str
+                    Mass Air / Rev.: 515.0 mg/str
+
+001348 - Sensor 1 for Exhaust Temp Bank 1 (G235) 
+               P0544 - 001 - Circuit Malfunction - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100001
+                    Fault Priority: 2
+                    Fault Frequency: 29
+                    Reset counter: 255
+                    Mileage: 363948 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 12:38:53
+
+             Freeze Frame:
+                    RPM: 1725 /min
+                    Speed: 88.0 km/h
+                    Voltage: 13.76 V
+                    Temperature: 96.3°C
+                    Temperature: 930.0°C
+                    Temperature: 534.0°C
+                    Temperature: 420.0°C
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 001 - Too Low - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100001
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 366163 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:40
+
+             Freeze Frame:
+                    RPM: 1633 /min
+                    Inj. Quantity: 42.8 mg/str
+                    (no units): 5.0
+                    Pressure: 1368.0 bar
+                    Pressure: 176.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 002 - Too Low
+             Freeze Frame:
+                    Fault Status: 01100010
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 255
+                    Mileage: 366163 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:41
+
+             Freeze Frame:
+                    RPM: 1886 /min
+                    Inj. Quantity: 25.0 mg/str
+                    (no units): 5.0
+                    Pressure: 1376.0 bar
+                    Pressure: 264.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 006 - Too Low - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100110
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 255
+                    Mileage: 366164 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:47
+
+             Freeze Frame:
+                    RPM: 2576 /min
+                    Inj. Quantity: 20.3 mg/str
+                    (no units): 4.0
+                    Pressure: 1488.0 bar
+                    Pressure: 80.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+Readiness: 1 4 0 0 0 
+
+-------------------------------------------------------------------------------
+Address 02: Auto Trans        Labels: 02E-927-770.clb
+   Part No SW: 02E 300 062 B    HW: 02E 927 770 AL
+   Component: GSG DSG AG6     512 9430  
+   Revision: 05551213    Serial number: 00001204270273
+   Coding: 0000020
+   Shop #: WSC 00066 000 00000
+   VCID: 14270957377B863DF4-8040
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 03: ABS Brakes (J104)       Labels:. 1K0-907-379-EC1-V3.clb
+   Part No SW: 1K0 907 379 BL    HW: 1K0 907 379 BL
+   Component: ESP MK60EC1   H31 0152  
+   Revision: 00H31001    
+   Coding: B14B400C492800FC8D0C02ED92220042211000
+   Shop #: WSC 00066 000 00000
+   VCID: 7DF14CF3E4F167752B-8028
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 05: Acc/Start Auth. (J518)       Labels:| 5K0-959-434.clb
+   Part No SW: 5K0 959 434 B    HW: 5K0 959 434 
+   Component: VWKESSYPQ35GP 085 0902  
+   Revision: 00085000    Serial number: 0175358923 Dataset Number: 5K0116v____ 1609
+   Coding: 030C0C
+   Shop #: WSC 00066 000 00000
+   ASAM Dataset: EV_KESSYPQ35G A02013
+   ROD: EV_KESSYPQ35G_A02_VW32.rod
+   VCID: 3467A9D79F3B663D94-8060
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 08: Auto HVAC        Labels: 5C0-820-047.clb
+   Part No SW: 5C0 820 047 BA    HW: 5C0 820 047 BA
+   Component: J301  Klimaanlage   0204  
+   Revision: 2001012S    Serial number: 00000001095703
+   Shop #: WSC 00066 000 00000
+   VCID: 60CF1587B343AA9D20-8034
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 09: Cent. Elect. (J519)       Labels:. 6R0-937-08x-09.clb
+   Part No SW: 5C0 937 087 E    HW: 5C0 937 087 A
+   Component: BCM25 JLB H3  H66 0257  
+   Revision: B2066001    Serial number: 04371203121108
+   Coding: 73994BBA08230F0008382000240884C50082502E6000000030A000000000
+   Shop #: WSC 10778 002 104857
+   VCID: 2F6DA6BB7E1D45E5E9-807A
+
+   Subsystem 1 - Part No SW: 6R0 959 801 AF    HW: 6R0 959 801 AF  Labels: 6R0-959-801.CLB
+   Component: J386__TSG_FT  004 3465 
+   Serial number: --------------------
+   Coding: 820000
+
+   Subsystem 2 - Part No SW: 6R0 959 802 AF    HW: 6R0 959 802 AF  Labels: 6R0-959-802.CLB
+   Component: J387__TSG_BT  004 3465 
+   Serial number: --------------------
+   Coding: 820000
+
+   Subsystem 3 - Part No SW: 5K0 959 591     HW: 5K0 959 591 
+   Component: J245 PS41.022  H10 0007 
+   Serial number:     WRH0005SWQI     
+   Coding: 180000
+
+   Subsystem 4 - Part No SW: 5K0 959 542 A    HW: 5K0 959 542 A
+   Component: E221__MFL-TAS  H09 0013 
+   Serial number: 0365555             
+   Coding: 020000
+
+   Subsystem 5 - Part No SW: 6R0 959 811 H    HW: 6R0 959 811 H
+   Component: J388__TSG_HL  004 3464 
+   Serial number: --------------------
+   Coding: 800000
+
+   Subsystem 6 - Part No SW: 6R0 959 812 H    HW: 6R0 959 812 H
+   Component: J389__TSG_HR  004 3464 
+   Serial number: --------------------
+   Coding: 800000
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 15: Airbags (J234)       Labels:| 5K0-959-655.clb
+   Part No SW: 5C0 959 655 E    HW: 5C0 959 655 E
+   Component: AirbagVW10G   014 0808  
+   Serial number: 003GTM079Y5$   Dataset Number: 160003v____ 0154
+   Coding: 00003936
+   Shop #: WSC 00066 000 00000
+   ASAM Dataset: EV_AirbaVW10SMEVW360 A01023
+   ROD: EV_AirbaVW10SMEVW360.rod
+   VCID: 3467A9D79F3B663D94-8060
+
+   Seat occupant detection: 
+   Subsystem 1 - Part No SW: 5C6 959 339 A    HW: 5C6 959 339 A
+   Component: BF-Gewichtss.  H10 0045 
+   Serial number: 6940000Y120000H6M00F
+   Coding: 303042
+
+   Crash sensor for side airbag: driver side: 
+   Subsystem 2 - Part No SW: 5K0 959 354     HW: 5K0 959 354 
+   Component: S.Sens.Fahr.V  H02 ---- 
+   Serial number: 3572MSME1660756EZZZ 
+
+   Crash sensor for side airbag: passenger side: 
+   Subsystem 3 - Part No SW: 5K0 959 354     HW: 5K0 959 354 
+   Component: S.Sens.Beif.V  H02 ---- 
+   Serial number: 3582MSME7463606CZZZ 
+
+   Crash sensor for side airbag: driver side rear: 
+   Subsystem 4 - Part No SW: 5K0 959 351 A    HW: 5K0 959 351 A
+   Component: S.Sens.Fahr.H  H02 ---- 
+   Serial number: 3516KSME3941581DZZZX
+
+   Crash sensor for side airbag: passenger side rear: 
+   Subsystem 5 - Part No SW: 5K0 959 351 A    HW: 5K0 959 351 A
+   Component: S.Sens.Beif.H  H02 ---- 
+   Serial number: 3526KSME7440311DZZZN
+
+   Crash sensor for front airbag: driver side: 
+   Subsystem 6 - Part No SW: 5K0 959 659 A    HW: 5K0 959 659 A
+   Component: F.Sens.Fahr  H02 ---- 
+   Serial number: 3556LSME6D28731BZZZ2
+
+   Crash sensor for front airbag: passenger side: 
+   Subsystem 7 - Part No SW: 5K0 959 659 A    HW: 5K0 959 659 A
+   Component: F.Sens.Beif  H02 ---- 
+   Serial number: 3566LSME6012731BZZZQ
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 17: Instruments (J285)       Labels:| 5K0-920-xxx-17.clb-SRI1
+   Part No SW: 5C6 920 852 A    HW: 5C6 920 852 A
+   Component: KOMBI         H06 0705  
+   Serial number: 00000000000000
+   Coding: 370C00
+   Shop #: WSC 00066 123 00122
+   ASAM Dataset: EV_Kombi_UDS_VDD_RM09 A04716
+   ROD: EV_Kombi_UDS_VDD_RM09_004_VW32.rod
+   VCID: 295948A348F92BD537-807C
+
+2 Faults Found:
+9453074 - Fuel Level Sensor 1 
+          B103E 1B [00001000] - Resistance Too High
+          Intermittent - Confirmed - Tested Since Memory Clear
+             Freeze Frame:
+                    Fault Priority: 2
+                    Fault Frequency: 140
+                    Reset counter: 163
+                    Mileage: 359054 km
+                    Date: 2026.11.11.
+                    Time: 18:58:14
+
+9459995 - Covering for fuel level indicator sensor 1 
+          B1059 1B [00001000] - Resistance Too High
+          [New feature! Extended UDS fault detail is only supported by current gen. interfaces]
+          Intermittent - Confirmed - Tested Since Memory Clear
+             Freeze Frame:
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 164
+                    Mileage: 359054 km
+                    Date: 2026.11.11.
+                    Time: 18:56:13
+
+
+-------------------------------------------------------------------------------
+Address 19: CAN Gateway (J533)       Labels:. 6N0-909-901-6R.clb
+   Part No SW: 6N0 909 901     HW: 5C0 937 087 A
+   Component: GW-K-CAN TP20 H66 0257  
+   Revision: B2066001    
+   Coding: 102200
+   Shop #: WSC 10778 002 104857
+   VCID: 70EF65C7A3A31A1DB0-8024
+
+2 Faults Found:
+01304 - Radio 
+            004 - No Signal/Communication
+             Freeze Frame:
+                    Fault Status: 01100100
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 240
+                    Mileage: 359052 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 18:02:50
+
+02078 - Media Player Position 3 (R120) 
+            004 - No Signal/Communication
+             Freeze Frame:
+                    Fault Status: 01100100
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 240
+                    Mileage: 359052 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 18:02:51
+
+
+-------------------------------------------------------------------------------
+Address 25: Immobilizer (J334)       Labels:| 5K0-920-xxx-25.clb
+   Part No SW: 5K0 953 234     HW: 5K0 953 234 
+   Component: IMMO          H06 0705  
+   Serial number:               
+   Coding: 000007
+   Shop #: WSC 00066 000 00122
+   ASAM Dataset: EV_Immo_UDS_VDD_RM09 A03709
+   ROD: EV_Immo_UDS_VDD_RM09_VW32.rod
+   VCID: 6ADB77AF8D7FE0CDFE-803E
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 2B: Steer. Col. Lock (J764)       Labels:* 5K0-905-861.clb
+   Part No SW: 5K0 905 861 B    HW: 5K0 905 861 B
+   Component: ELV-PQ35      H20 0240  
+   Revision: 00000000    Serial number: 12000137899002
+   Coding: 4900000000000000
+   Shop #: WSC 00066 790 50316
+   ASAM Dataset: EV_ELVMarquMPVW36X A01001
+   ROD: EV_ELVMarquMPVW36X_VW32.rod
+   VCID: 2F6DA6BB761D45E5E9-807A
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 2E: Media Player 3
+Cannot be reached
+
+-------------------------------------------------------------------------------
+Address 44: Steering Assist        Labels: 1K0-909-14x-GEN3.clb
+   Part No: 1K0 909 144 P
+   Component: EPS_ZFLS Kl. 70     3305  
+   Revision: 00H22000    
+   Shop #: WSC 02069 000 90108
+   VCID: 377D9EDB464D8D25B1-8062
+
+No fault code found.
+
+-------------------------------------------------------------------------------
+Address 56: Radio
+Cannot be reached
+
+-------------------------------------------------------------------------------
+Address 77: Telephone (J412)       Labels:| 7P6-035-730.clb
+   Part No SW: 7P6 035 730 K    HW: 7P6 035 730 K
+   Component: TELEFON       H15 3200  
+   Revision: 1B001001    Serial number: 00007662850767 Dataset Number: 7P6035730K  0001
+   Coding: 0210040000010110
+   Shop #: WSC 01383 790 50316
+   ASAM Dataset: EV_UHVNA 002720
+   ROD: EV_UHVNA_002_VW25.rod
+   VCID: 3A7B87EFBD5F904D4E-806E
+
+3 Faults Found:
+9457427 - Left audio channel for speech/telephone 
+          B104F 13 [00001001] - Short to GND
+          Confirmed - Tested Since Memory Clear
+             Freeze Frame:
+                    Fault Priority: 4
+                    Fault Frequency: 1
+                    Reset counter: 240
+
+9457171 - Right audio channel for speech/telephone 
+          B104E 13 [00001001] - Short to GND
+          Confirmed - Tested Since Memory Clear
+             Freeze Frame:
+                    Fault Priority: 4
+                    Fault Frequency: 1
+                    Reset counter: 240
+
+0022 - Radio 
+          U1066 00 [00001001] - No Communication
+          [New feature! Extended UDS fault detail is only supported by current gen. interfaces]
+          Confirmed - Tested Since Memory Clear
+             Freeze Frame:
+                    Fault Priority: 6
+                    Fault Frequency: 1
+                    Reset counter: 240
+                    Mileage: 359052 km
+                    Date: 2026.11.11.
+                    Time: 18:01:58
+
+
+End-------------------------(Elapsed Time: 03:17)--------------------------
+------------------------------19 Faults Found------------------------------

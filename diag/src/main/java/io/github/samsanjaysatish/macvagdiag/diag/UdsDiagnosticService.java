@@ -1,12 +1,10 @@
 package io.github.samsanjaysatish.macvagdiag.diag;
 
-import io.github.samsanjaysatish.macvagdiag.can.Hex;
 import io.github.samsanjaysatish.macvagdiag.can.TimeSource;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import io.github.samsanjaysatish.macvagdiag.transport.DiagnosticChannel;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,19 +19,22 @@ import java.util.SequencedMap;
  * masks, records and DIDs VCDS uses are <b>UNCONFIRMED</b> and kept in the named constants below.
  *
  * <ul>
- *   <li>DTCs: {@code 19 02 FF} → {@code 59 02 [availability mask] ([DTC 3 bytes] [status])...}.</li>
- *   <li>Freeze frame: {@code 19 04 [DTC] FF} (snapshot records) then {@code 19 06 [DTC] FF} (extended data).
- *       Record contents are kept raw: splitting them needs the DID lengths, which only the capture can tell.</li>
+ *   <li>DTCs: {@code 19 02 AE} → {@code 59 02 [availability mask] ([DTC 3 bytes] [status])...}.</li>
+ *   <li>Freeze frame: {@code 19 06 [DTC] FF} (extended data, all records) only, as VCDS read it on every UDS
+ *       module of the 2026-11-13 capture; VCDS never sent {@code 19 04} (snapshot records), so neither do we
+ *       (changed 2026-11-16). The record contents are kept raw: the layout in {@code diag/CLAUDE.md} is still a
+ *       hypothesis.</li>
  *   <li>Identification: {@code 22 [DID]} for each of {@link #IDENTIFICATION_DIDS}, one DID per request.</li>
  * </ul>
  */
 public final class UdsDiagnosticService implements DiagnosticService {
 
-    /** UNCONFIRMED: status mask for {@code 19 02}; {@code FF} = every status bit. */
-    public static final int DTC_STATUS_MASK = 0xFF;
-    /** UNCONFIRMED: snapshot record number for {@code 19 04}; ISO 14229-1 {@code FF} = all records. */
-    public static final int SNAPSHOT_RECORD_ALL = 0xFF;
-    /** UNCONFIRMED: extended data record number for {@code 19 06}; ISO 14229-1 {@code FF} = all records. */
+    /**
+     * Status mask for {@code 19 02}: {@code AE} (bits 1 2 3 5 7), what VCDS sent to every UDS module on the
+     * 2026-11-13 capture.
+     */
+    public static final int DTC_STATUS_MASK = 0xAE;
+    /** Extended data record number for {@code 19 06}: {@code FF} = all records, as VCDS sent it (2026-11-13). */
     public static final int EXTENDED_DATA_RECORD_ALL = 0xFF;
 
     /** ISO 14229-1 vehicleManufacturerSparePartNumber. */
@@ -69,9 +70,8 @@ public final class UdsDiagnosticService implements DiagnosticService {
     static final int DTC_RECORD_LENGTH = 4;
     /** {@code 59 04|06 [DTC 3 bytes] [status]}. */
     static final int BY_DTC_HEADER_LENGTH = 6;
-    /** {@code 62 [DID hi] [DID lo]}. */
-    static final int DID_HEADER_LENGTH = 3;
-    static final int VIN_LENGTH = 17;
+    /** Requests {@link #readFreezeFrame} sends: one {@code 19 06}. */
+    public static final int FREEZE_FRAME_REQUESTS = 1;
 
     private final Exchange exchange;
 
@@ -117,56 +117,14 @@ public final class UdsDiagnosticService implements DiagnosticService {
 
     @Override
     public DiagResult<EcuIdentification> readIdentification() throws InterruptedException {
-        Map<EcuIdentification.Field, String> fields = new EnumMap<>(EcuIdentification.Field.class);
-        List<RawRecord> records = new ArrayList<>();
-        List<String> notes = new ArrayList<>();
-        DiagResult<EcuIdentification> firstFailure = null;
+        IdentificationReader reader = new IdentificationReader(exchange);
         for (Map.Entry<Integer, EcuIdentification.Field> e : IDENTIFICATION_DIDS.entrySet()) {
-            int did = e.getKey();
-            DiagRequest request = DiagRequest.udsReadDataByIdentifier(did);
-            DiagResult<RawBytes> r = exchange.run(request);
-            if (r instanceof DiagResult.Success<RawBytes> s) {
-                RawBytes response = s.value();
-                if (!Reads.echoes(response, 1, did >> 8) || !Reads.echoes(response, 2, did & 0xFF)) {
-                    records.add(new RawRecord(request.hex() + " (whole response, DID not echoed)", response));
-                    notes.add(request.hex() + ": answer doesn't echo the DID, kept raw");
-                    continue;
-                }
-                RawBytes data = RawBytes.slice(response.bytes(), DID_HEADER_LENGTH, response.length());
-                records.add(new RawRecord(request.hex(), data));
-                decodeField(e.getValue(), data, request, fields, notes);
-            } else if (Reads.partFailureContinues(r)) {
-                notes.add(request.hex() + ": " + r.message());
-                if (firstFailure == null) {
-                    firstFailure = r.failure();
-                }
-            } else {
-                return r.failure();
+            reader.readDid(DiagRequest.udsReadDataByIdentifier(e.getKey()), e.getKey(), e.getValue());
+            if (reader.stopped()) {
+                break;
             }
         }
-        if (records.isEmpty()) {
-            return firstFailure;
-        }
-        return new DiagResult.Success<>(new EcuIdentification(ApplicationProtocol.UDS, fields, records, notes));
-    }
-
-    private static void decodeField(EcuIdentification.Field field, RawBytes data, DiagRequest request,
-            Map<EcuIdentification.Field, String> fields, List<String> notes) {
-        switch (field) {
-            case CODING -> {
-                if (data.isEmpty()) {
-                    notes.add(request.hex() + ": empty coding");
-                } else {
-                    fields.put(field, Hex.formatCompact(data.bytes()));
-                }
-            }
-            case VIN -> data.asciiText().filter(t -> t.length() == VIN_LENGTH).ifPresentOrElse(
-                    vin -> fields.put(field, vin),
-                    () -> notes.add(request.hex() + ": not a 17-character VIN, kept raw"));
-            default -> data.asciiText().ifPresentOrElse(
-                    text -> fields.put(field, text),
-                    () -> notes.add(request.hex() + ": not text, kept raw"));
-        }
+        return reader.result(ApplicationProtocol.UDS);
     }
 
     @Override
@@ -210,31 +168,24 @@ public final class UdsDiagnosticService implements DiagnosticService {
         if (!(dtc instanceof UdsDtc uds)) {
             throw new IllegalArgumentException("Not a UDS DTC: " + dtc);
         }
+        DiagRequest request = DiagRequest.udsReadExtendedData(uds.code(), EXTENDED_DATA_RECORD_ALL);
+        DiagResult<RawBytes> r = exchange.run(request);
+        if (!(r instanceof DiagResult.Success<RawBytes> s)) {
+            return r.failure();
+        }
         List<RawRecord> records = new ArrayList<>();
-        List<RawBytes> responses = new ArrayList<>();
         List<String> notes = new ArrayList<>();
-        DiagResult<FreezeFrame> firstFailure = null;
-        List<DiagRequest> requests = List.of(
-                DiagRequest.udsReadSnapshot(uds.code(), SNAPSHOT_RECORD_ALL),
-                DiagRequest.udsReadExtendedData(uds.code(), EXTENDED_DATA_RECORD_ALL));
-        for (DiagRequest request : requests) {
-            DiagResult<RawBytes> r = exchange.run(request);
-            if (r instanceof DiagResult.Success<RawBytes> s) {
-                responses.add(s.value());
-                parseByDtcResponse(request, uds, s.value(), records, notes);
-            } else if (Reads.partFailureContinues(r)) {
-                notes.add(request.hex() + ": " + r.message());
-                if (firstFailure == null) {
-                    firstFailure = r.failure();
-                }
-            } else {
-                return r.failure();
-            }
+        parseByDtcResponse(request, uds, s.value(), records, notes);
+        return new DiagResult.Success<>(new FreezeFrame(dtc, records, List.of(), List.of(s.value()), notes));
+    }
+
+    @Override
+    public DiagResult<InstallationList> readInstallationList() throws InterruptedException {
+        DiagResult<RawBytes> r = exchange.run(DiagRequest.udsReadDataByIdentifier(InstallationList.DID));
+        if (r instanceof DiagResult.Success<RawBytes> s) {
+            return InstallationList.parse(s.value());
         }
-        if (responses.isEmpty()) {
-            return firstFailure;
-        }
-        return new DiagResult.Success<>(new FreezeFrame(dtc, records, List.of(), responses, notes));
+        return r.failure();
     }
 
     /**

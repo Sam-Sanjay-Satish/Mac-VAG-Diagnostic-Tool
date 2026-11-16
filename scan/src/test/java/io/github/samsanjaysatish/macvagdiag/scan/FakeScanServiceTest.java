@@ -19,15 +19,15 @@ class FakeScanServiceTest {
     void sampleData() throws InterruptedException {
         FakeScanService scan = new FakeScanService();
         assertEquals(SessionStatus.AdapterState.CONNECTED, scan.sessionStatus(Caller.web()).adapter());
-        assertEquals(13, scan.listModules(Caller.web()).size());
+        assertEquals(16, scan.listModules(Caller.web()).size());
         assertEquals(ModuleStatus.FAULTS, scan.readFaultCodes(Caller.mcp("read_fault_codes"), ModuleAddress.ENGINE).status());
         List<ScanEvent> events = new ArrayList<>();
         AutoScanJob job = scan.startAutoScan(Caller.web(), events::add);
         assertTrue(job.isDone());
         assertEquals(SampleScanData.autoScan(), job.await());
-        assertEquals(2 + 2 * 13, events.size());
+        assertEquals(2 + 2 * 16, events.size());
         assertInstanceOf(ScanEvent.Finished.class, events.getLast());
-        assertEquals(13, job.completedModules());
+        assertEquals(16, job.completedModules());
         assertEquals(job, scan.findAutoScan(job.id()).orElseThrow());
         assertEquals("readFaultCodes", scan.calls().get(2).method());
         assertEquals("mcp:read_fault_codes", scan.calls().get(2).caller());

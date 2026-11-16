@@ -11,10 +11,13 @@ import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
  * One open channel and diagnostic session to one module, on the worker thread. It owns:
  * <ul>
  *   <li><b>Pacing:</b> waits for {@link ScanLimits#minRequestGap()} since the last exchange with the car.</li>
- *   <li><b>Keep-alive:</b> while it waits (pacing, back-off), it sends TP 2.0 keep-alive after
- *       {@link ScanLimits#channelKeepAliveInterval()} and Tester Present after
- *       {@link ScanLimits#testerPresentInterval()} of idleness, scheduled on the {@link TimeSource}. Nothing outside
- *       this class can send either; both stop when the session is closed.</li>
+ *   <li><b>Keep-alive:</b> while it waits (pacing, back-off), it sends the TP 2.0 keep-alive ({@code A3}) after
+ *       {@link ScanLimits#channelKeepAliveInterval()} of idleness on TP 2.0 channels, and Tester Present after
+ *       {@link ScanLimits#testerPresentInterval()} on links without a channel keep-alive (UDS over ISO-TP),
+ *       scheduled on the {@link TimeSource}. No KWP {@code 3E} on TP 2.0: VCDS never sent one on the 2026-11-13
+ *       capture and kept every TP 2.0 session alive with {@code A3} alone (also through idle stretches of several
+ *       seconds in the 01 fault-code read). Nothing outside this class can send either; both stop when the
+ *       session is closed.</li>
  *   <li><b>Retries:</b> a timeout or {@code 7F xx 21} (busy) is retried up to {@link ScanLimits#maxRetries()} times
  *       with exponential back-off.</li>
  *   <li><b>Giving up:</b> after {@link ScanLimits#maxConsecutiveFailures()} failed operations in a row, or a lost
@@ -31,13 +34,18 @@ final class ModuleSession implements AutoCloseable {
         DiagResult<T> run(DiagnosticService diag) throws InterruptedException;
     }
 
-    /** UNCONFIRMED: VCDS's session per protocol. KWP: the VW diagnostic session {@code 10 89}. */
+    /** KWP: the VW diagnostic session {@code 10 89}, as VCDS sent to every TP 2.0 module (2026-11-13 capture). */
     static final DiagnosticSession KWP_SESSION = DiagnosticSession.KWP_VW_DIAGNOSTIC;
     /**
-     * UNCONFIRMED: UDS default session {@code 10 01}, the least state change: reading DTCs and DIDs is allowed in
-     * the default session, and it doesn't time out. VCDS may use {@code 10 03}; check the capture.
+     * UDS: the extended session {@code 10 03}, because that is what VCDS used on every UDS module of the target
+     * car (2026-11-13 capture: {@code 10 03} first, never {@code 10 01}), so it is the session known to work for
+     * {@code 19 02 AE} / {@code 19 06} and the identification DIDs there. Whether the default session would do is
+     * unknown (VCDS never tried). {@code 10 03} is a read-only diagnostic session (on the allowlist; programming
+     * {@code 10 02} is not). It ends after 5 s (S3server) without a request; Tester Present every
+     * {@link ScanLimits#testerPresentInterval()} keeps it open, and closing the channel just lets it time out
+     * back to the default session.
      */
-    static final DiagnosticSession UDS_SESSION = DiagnosticSession.UDS_DEFAULT;
+    static final DiagnosticSession UDS_SESSION = DiagnosticSession.UDS_EXTENDED;
 
     private final ScanEngine engine;
     private final ScanContext ctx;
@@ -84,7 +92,7 @@ final class ModuleSession implements AutoCloseable {
         return abandonReason;
     }
 
-    /** {@code 10 89} (KWP) or {@code 10 01} (UDS). Tester Present only runs once this succeeded. */
+    /** {@code 10 89} (KWP) or {@code 10 03} (UDS). Tester Present only runs once this succeeded. */
     DiagResult<RawBytes> startSession() throws InterruptedException, LimitReachedException {
         DiagnosticSession session = protocol() == ApplicationProtocol.KWP2000 ? KWP_SESSION : UDS_SESSION;
         DiagResult<RawBytes> r = call(DiagOp.START_SESSION, d -> d.startSession(session));
@@ -193,7 +201,7 @@ final class ModuleSession implements AutoCloseable {
         if (connection.hasChannelKeepAlive()) {
             due = lastChannelActivity + limits.channelKeepAliveInterval().toNanos();
         }
-        if (sessionEstablished) {
+        if (sendsTesterPresent()) {
             due = Math.min(due, lastDiagActivity + limits.testerPresentInterval().toNanos());
         }
         return due;
@@ -215,7 +223,7 @@ final class ModuleSession implements AutoCloseable {
                 return;
             }
         }
-        if (sessionEstablished && !abandoned && connection.isOpen()
+        if (sendsTesterPresent() && !abandoned && connection.isOpen()
                 && now >= lastDiagActivity + limits.testerPresentInterval().toNanos()) {
             try {
                 track(send(DiagOp.TESTER_PRESENT, 0, DiagnosticService::testerPresent));
@@ -223,6 +231,14 @@ final class ModuleSession implements AutoCloseable {
                 lastDiagActivity = time.nanoTime(); // skipped: the operation after it will be refused too
             }
         }
+    }
+
+    /**
+     * Tester Present only once the session is up, and only on links without a channel keep-alive: on TP 2.0 the
+     * {@code A3} keep-alive covers the session as well (VCDS, 2026-11-13 capture).
+     */
+    private boolean sendsTesterPresent() {
+        return sessionEstablished && !connection.hasChannelKeepAlive();
     }
 
     /** Closes the channel; idempotent. No keep-alive is sent after this. */

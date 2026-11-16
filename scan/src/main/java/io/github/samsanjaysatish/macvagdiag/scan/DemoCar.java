@@ -10,6 +10,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,66 +20,127 @@ import java.util.Map;
  * CAN-frame level so the whole stack (scan → diag → transport → adapter) runs without a car. Used by
  * {@link ScanServiceFactory#demo} and by scan's full-stack tests.
  *
- * <p><b>Everything here is made up</b> (VIN {@value #VIN}, part numbers, fault codes) and follows the same
- * UNCONFIRMED protocol assumptions as transport and diag, because there is no capture yet. It shows what a scan
- * looks like; it says nothing about a real Jetta.
+ * <p><b>The data is made up</b> (VIN {@value #VIN}, part numbers, fault codes, serials: none from a real car). The
+ * <b>shape</b> follows the target car as the 2026-11-13 capture showed it, so a demo scan runs the same paths as a
+ * real one: the module table and CAN IDs of {@link ModuleAddress}, the request shapes VCDS used and the response
+ * layouts diag decodes.
  *
  * <ul>
- *   <li>01 Engine: UDS over ISO-TP {@code 7E0/7E8} only (TP 2.0 address 01 is silent, so scan's link fallback
- *       runs), faults P0401 and P2463 with freeze-frame records.</li>
- *   <li>02, 03, 08, 09, 15, 17, 19: KWP2000 over TP 2.0. 03 and 19 have a fault each; 08 answers its first
- *       DTC read on each channel with {@code 7F 18 21} (busy), to show the back-off; 17 reports the VIN.</li>
- *   <li>16, 25, 44, 46, 56: not installed (no answer).</li>
+ *   <li><b>19 Gateway</b> (TP 2.0 {@code 1F}, tx {@code 32E}): answers the installation list {@code 22 04 A1} with
+ *       every module below, refuses {@code 1A 9B} ({@code 7F 1A 11}) and is identified with {@code 22} DIDs, like
+ *       the real gateway. Fault 01044 (intermittent) with a freeze frame.</li>
+ *   <li><b>01 Engine</b> (TP 2.0 {@code 01}, tx {@code 740}): KWP2000, {@code 1A 9B} block and the VIN on
+ *       {@code 1A 90}. {@code 18 00 FF 00}: P0401 stored twice and P2463; each {@code 12 00 04 04 01} returns the
+ *       next stored record.</li>
+ *   <li>02 (tx {@code 760}), 08 ({@code 2C}, tx {@code 33C}), 44 ({@code 09}, tx {@code 7A8}): KWP2000, no faults.
+ *       08 answers its first DTC read on each channel with {@code 7F 18 21} (busy) to show the back-off.</li>
+ *   <li>03 ABS ({@code 03}, tx {@code 790}) and 09 Central Electrics ({@code 20}, tx {@code 338}): refuse
+ *       {@code 1A 9B}, identified with {@code 22} DIDs. 03 has 01314. 09 answers each {@code 22} with a response
+ *       pending {@code 7F 22 78} first, sent with the TP 2.0 length flag ({@code 80 03}) as the real BCM does.</li>
+ *   <li>UDS over ISO-TP: 05, 15, 17, 25, 2B, 77 on their CAN ID pairs. 17 has B1A10-12 and U0115-00 with
+ *       {@code 19 06} extended data records (no {@code 19 04}, like VCDS); the rest have none.</li>
+ *   <li>2E and 56: listed by the gateway as "cannot be reached", and silent. 04: listed OK, no link.</li>
  * </ul>
  */
 final class DemoCar implements SimulatedAdapter.Responder {
 
     static final String VIN = "DEMOVIN0000000000";
     private static final int SETUP_ID = 0x200;
-    private static final int TESTER_RX = 0x300; // what transport proposes in the setup (UNCONFIRMED there)
-    private static final int FIRST_TESTER_TX = 0x740;
-    private static final int UDS_REQUEST_ID = 0x7E0;
-    private static final int UDS_RESPONSE_ID = 0x7E8;
-    private static final String TIMING_REPLY = "A1 0F 8A FF 0A FF";
+    private static final int TESTER_RX = 0x300; // what transport proposes in the setup
+    private static final String TIMING_REPLY = "A1 0F 8A FF 4A FF";
     private static final int PADDING = 0xAA;
     /** The adapter keeps every frame for tests; a long-running demo server would grow without bound. */
     private static final long CLEAR_RECORDED_FRAMES_EVERY = 20_000;
 
-    private record KwpModule(int address, int testerTx, String identification, boolean reportsVin,
-            String dtcResponse, int busyDtcReadsPerChannel) {
+    /** A KWP2000 module on TP 2.0. {@code block9B} null = refuses {@code 1A 9B} and answers {@code 22} DIDs. */
+    private record KwpModule(int logicalAddress, int testerTx, String block9B, Map<String, String> dids,
+            boolean reportsVin, String dtcRequest, String dtcResponse, int busyDtcReadsPerChannel,
+            boolean pendingFirst) {
     }
 
     private static final Map<Integer, KwpModule> KWP = new LinkedHashMap<>();
 
     static {
-        kwp(0x02, "02E300012D  DSG DEMO       0412", false, "58 00", 0);
-        kwp(0x03, "1K0907379AC ESP DEMO MK60  0004", false, "58 01 05 22 23", 0); // 01314, symptom 35
-        kwp(0x08, "5K0907044BT CLIMA DEMO     0117", false, "58 00", 1);
-        kwp(0x09, "1K0937049N  BCM DEMO       0811", false, "58 00", 0);
-        kwp(0x15, "5C0959655   AIRBAG DEMO    0202", false, "58 00", 0);
-        kwp(0x17, "5C6920870A  KOMBI DEMO     0303", true, "58 00", 0);
-        kwp(0x19, "7N0907530AL GATEWAY DEMO   0080", false, "58 01 04 14 A3", 0); // 01044, intermittent
+        // Engine: 18 00 FF 00. P0401 (04 01) stored twice, MIL on, type 002; P2463 (24 63) intermittent, type 003.
+        KWP.put(0x01, new KwpModule(0x01, 0x740, block9B("03L906018XX", "9971", 0x017234, "DEMO R4 2.0L TDI"),
+                Map.of(), true, "18 00 FF 00", "58 03 04 01 E2 04 01 E2 24 63 23", 0, false));
+        KWP.put(0x02, new KwpModule(0x02, 0x760, block9B("02E300012D", "0412", 0x000021, "DEMO DSG"),
+                Map.of(), false, "18 02 FF 00", "58 00", 0, false));
+        KWP.put(0x03, new KwpModule(0x03, 0x790, null, dids("1K0907379AC", "ESP DEMO MK60"),
+                false, "18 02 FF 00", "58 01 05 22 63", 0, false)); // 01314, type 003
+        KWP.put(0x2C, new KwpModule(0x2C, 0x33C, block9B("5K0907044BT", "0117", 0x000140, "DEMO CLIMATRONIC"),
+                Map.of(), false, "18 02 FF 00", "58 00", 1, false));
+        KWP.put(0x20, new KwpModule(0x20, 0x338, null, dids("1K0937049N", "BCM DEMO"),
+                false, "18 02 FF 00", "58 00", 0, true));
+        KWP.put(0x1F, new KwpModule(0x1F, 0x32E, null, dids("7N0907530AL", "GATEWAY DEMO"),
+                false, "18 02 FF 00", "58 01 04 14 23", 0, false)); // 01044, intermittent, type 003
+        KWP.put(0x09, new KwpModule(0x09, 0x7A8, block9B("1K0909144J", "3501", 0x000101, "DEMO EPS"),
+                Map.of(), false, "18 02 FF 00", "58 00", 0, false));
     }
 
-    private static void kwp(int address, String id, boolean vin, String dtcs, int busy) {
-        KWP.put(address, new KwpModule(address, FIRST_TESTER_TX + KWP.size(), id, vin, dtcs, busy));
+    /**
+     * The installation list {@code 62 04 A1 ...}: {@code [VCDS address] [TP 2.0 address] [status] [group]}. Status
+     * {@code 01} OK, {@code 05} malfunction, {@code 19} cannot be reached, {@code 00} not installed.
+     */
+    static final String INSTALLATION_LIST = "62 04 A1"
+            + " 01 01 05 10" + " 02 02 01 10" + " 03 03 05 10" + " 04 00 01 15" + " 05 31 01 11" + " 08 2C 01 11"
+            + " 09 20 01 11" + " 15 05 01 10" + " 16 00 00 11" + " 17 07 05 11" + " 19 1F 05 10" + " 25 14 01 11"
+            + " 2B 30 01 11" + " 2E 54 19 31" + " 44 09 01 10" + " 46 00 00 11" + " 56 52 19 31" + " 77 5A 01 31";
+
+    /** A UDS module over ISO-TP: its CAN IDs and answers by request. */
+    private record UdsModule(int requestId, int responseId, Map<String, String> answers) {
     }
 
-    private static final Map<String, String> ENGINE = Map.ofEntries(
-            Map.entry("10 01", "50 01 00 32 01 F4"),
-            Map.entry("10 03", "50 03 00 32 01 F4"),
-            Map.entry("3E 00", "7E 00"),
-            Map.entry("22 F1 87", "62 F1 87 " + ascii("03L906018XX")),
-            Map.entry("22 F1 89", "62 F1 89 " + ascii("9971")),
-            Map.entry("22 F1 91", "62 F1 91 " + ascii("03L907309X")),
-            Map.entry("22 F1 97", "62 F1 97 " + ascii("DEMO R4 2.0L TDI")),
-            Map.entry("22 06 00", "62 06 00 00 00 17 2A 00 00"),
-            Map.entry("22 F1 90", "62 F1 90 " + ascii(VIN)),
-            Map.entry("19 02 FF", "59 02 FF 04 01 00 2F 24 63 00 08"),
-            Map.entry("19 04 04 01 00 FF", "59 04 04 01 00 2F 01 01 F4 0D 2A"),
-            Map.entry("19 06 04 01 00 FF", "59 06 04 01 00 2F 01 05 02"),
-            Map.entry("19 04 24 63 00 FF", "59 04 24 63 00 08"),
-            Map.entry("19 06 24 63 00 FF", "7F 19 31"));
+    private static final Map<Integer, UdsModule> UDS = new HashMap<>();
+
+    static {
+        uds(0x732, 0x79C, "5K0905861", "KESSY DEMO", "59 02 FF");
+        uds(0x715, 0x77F, "5C0959655", "AIRBAG DEMO", "59 02 FF");
+        Map<String, String> instruments = new HashMap<>(udsBase("5C6920870A", "KOMBI DEMO",
+                "59 02 FF 9A 10 12 09 C1 15 00 08"));
+        instruments.put("19 06 9A 10 12 FF", "59 06 9A 10 12 09 01 05 02");
+        instruments.put("19 06 C1 15 00 FF", "7F 19 31");
+        UDS.put(0x714, new UdsModule(0x714, 0x77E, Map.copyOf(instruments)));
+        uds(0x711, 0x77B, "5K0953234", "IMMO DEMO", "59 02 FF");
+        uds(0x731, 0x79B, "1K0905861", "ELV DEMO", "59 02 FF");
+        uds(0x76B, 0x7D5, "3C0035730", "PHONE DEMO", "59 02 FF");
+    }
+
+    private static void uds(int request, int response, String part, String name, String dtcs) {
+        UDS.put(request, new UdsModule(request, response, udsBase(part, name, dtcs)));
+    }
+
+    private static Map<String, String> udsBase(String part, String name, String dtcs) {
+        return Map.of(
+                "10 03", "50 03 00 32 01 F4",
+                "10 01", "50 01 00 32 01 F4",
+                "3E 00", "7E 00",
+                "22 F1 87", "62 F1 87 " + ascii(part),
+                "22 F1 89", "62 F1 89 " + ascii("0101"),
+                "22 F1 97", "62 F1 97 " + ascii(name),
+                "19 02 AE", dtcs);
+    }
+
+    private static Map<String, String> dids(String part, String name) {
+        return Map.of(
+                "22 F1 87", "62 F1 87 " + ascii(part),
+                "22 F1 89", "62 F1 89 " + ascii("0001"),
+                "22 F1 97", "62 F1 97 " + ascii(name));
+    }
+
+    /**
+     * The 46-byte {@code 1A 9B} block diag decodes: part number (12 ASCII), software version (4 ASCII), coding
+     * ({@code 03} + 3 bytes), workshop code (6 bytes, all zero here), component (20 ASCII).
+     */
+    private static String block9B(String part, String software, int coding, String component) {
+        return ascii(pad(part, 12)) + " " + ascii(pad(software, 4))
+                + String.format(" 03 %02X %02X %02X", coding >> 16, (coding >> 8) & 0xFF, coding & 0xFF)
+                + " 00 00 00 00 00 00 " + ascii(pad(component, 20));
+    }
+
+    private static String pad(String text, int length) {
+        return String.format("%-" + length + "s", text).substring(0, length);
+    }
 
     /** The open TP 2.0 channel (transport opens one at a time). */
     private static final class Channel {
@@ -87,6 +149,7 @@ final class DemoCar implements SimulatedAdapter.Responder {
         ByteArrayOutputStream request;
         int requestLength;
         int busyLeft;
+        final Map<String, Integer> freezeFramesRead = new HashMap<>();
 
         Channel(KwpModule module) {
             this.module = module;
@@ -96,6 +159,7 @@ final class DemoCar implements SimulatedAdapter.Responder {
 
     private Channel channel;
     private final Deque<byte[]> pendingConsecutiveFrames = new ArrayDeque<>();
+    private int pendingResponseId;
     private SimulatedAdapter adapter;
     private long framesSeen;
 
@@ -115,8 +179,9 @@ final class DemoCar implements SimulatedAdapter.Responder {
         if (sent.id() == SETUP_ID) {
             return setup(sent);
         }
-        if (sent.id() == UDS_REQUEST_ID) {
-            return isoTp(sent);
+        UdsModule uds = UDS.get(sent.id());
+        if (uds != null) {
+            return isoTp(uds, sent);
         }
         if (channel != null && sent.id() == channel.module.testerTx()) {
             return tp20(channel, sent);
@@ -132,11 +197,11 @@ final class DemoCar implements SimulatedAdapter.Responder {
         }
         KwpModule m = KWP.get(sent.dataByte(0));
         if (m == null) {
-            return List.of(); // not installed
+            return List.of(); // not installed, or not reachable (2E, 56), or UDS only
         }
         channel = new Channel(m);
         int tx = m.testerTx();
-        return List.of(Reply.now(CanFrame.standard(SETUP_ID + m.address(), 0x00, 0xD0, TESTER_RX & 0xFF,
+        return List.of(Reply.now(CanFrame.standard(SETUP_ID + m.logicalAddress(), 0x00, 0xD0, TESTER_RX & 0xFF,
                 TESTER_RX >> 8, tx & 0xFF, tx >> 8, 0x01)));
     }
 
@@ -169,29 +234,39 @@ final class DemoCar implements SimulatedAdapter.Responder {
             replies.add(Reply.now(CanFrame.standard(TESTER_RX, 0xB0 | ((b0 + 1) & 0x0F))));
         }
         if ((op == 1 || op == 3) && ch.request.size() == ch.requestLength) {
-            byte[] response = Hex.parse(kwpAnswer(ch, Hex.format(ch.request.toByteArray())));
+            String request = Hex.format(ch.request.toByteArray());
             ch.request = null;
-            List<byte[]> chunks = segment(response);
-            for (int i = 0; i < chunks.size(); i++) {
-                int dataOp = i == chunks.size() - 1 ? 0x1 : 0x2;
-                byte[] chunk = chunks.get(i);
-                byte[] frame = new byte[1 + chunk.length];
-                frame[0] = (byte) ((dataOp << 4) | (ch.moduleSeq & 0x0F));
-                System.arraycopy(chunk, 0, frame, 1, chunk.length);
-                ch.moduleSeq = (ch.moduleSeq + 1) & 0x0F;
-                replies.add(Reply.now(new CanFrame(TESTER_RX, false, frame)));
+            if (ch.module.pendingFirst() && request.startsWith("22 ")) {
+                // "Response pending" first, with the length flag (bit 15) set as the real BCM sends it.
+                sendMessage(ch, Hex.parse("7F 22 78"), 0x8000, replies);
             }
+            sendMessage(ch, Hex.parse(kwpAnswer(ch, request)), 0, replies);
         }
         return replies;
     }
 
-    /** TP 2.0 packet data: the first carries a 2-byte length and up to 5 bytes, later ones 7. */
-    private static List<byte[]> segment(byte[] message) {
+    /** One module → tester message as TP 2.0 data packets; the last one asks for an ACK. */
+    private static void sendMessage(Channel ch, byte[] message, int lengthFlags, List<Reply> replies) {
+        List<byte[]> chunks = segment(message, lengthFlags);
+        for (int i = 0; i < chunks.size(); i++) {
+            int dataOp = i == chunks.size() - 1 ? 0x1 : 0x2;
+            byte[] chunk = chunks.get(i);
+            byte[] frame = new byte[1 + chunk.length];
+            frame[0] = (byte) ((dataOp << 4) | (ch.moduleSeq & 0x0F));
+            System.arraycopy(chunk, 0, frame, 1, chunk.length);
+            ch.moduleSeq = (ch.moduleSeq + 1) & 0x0F;
+            replies.add(Reply.now(new CanFrame(TESTER_RX, false, frame)));
+        }
+    }
+
+    /** TP 2.0 packet data: the first carries a 2-byte length (with flag bits) and up to 5 bytes, later ones 7. */
+    private static List<byte[]> segment(byte[] message, int lengthFlags) {
         List<byte[]> out = new ArrayList<>();
         int first = Math.min(5, message.length);
         byte[] head = new byte[2 + first];
-        head[0] = (byte) (message.length >> 8);
-        head[1] = (byte) message.length;
+        int length = message.length | lengthFlags;
+        head[0] = (byte) (length >> 8);
+        head[1] = (byte) length;
         System.arraycopy(message, 0, head, 2, first);
         out.add(head);
         for (int offset = first; offset < message.length; offset += 7) {
@@ -202,30 +277,62 @@ final class DemoCar implements SimulatedAdapter.Responder {
 
     private static String kwpAnswer(Channel ch, String request) {
         KwpModule m = ch.module;
+        if (request.equals("22 04 A1")) {
+            return m.logicalAddress() == 0x1F ? INSTALLATION_LIST : "7F 22 31";
+        }
+        if (request.startsWith("22 ")) {
+            return m.dids().getOrDefault(request, "7F 22 31");
+        }
+        if (request.equals(m.dtcRequest())) {
+            if (ch.busyLeft > 0) {
+                ch.busyLeft--;
+                return "7F 18 21";
+            }
+            return m.dtcResponse();
+        }
         return switch (request) {
             case "10 89" -> "50 89";
             case "3E" -> "7E";
-            case "1A 9B" -> "5A 9B " + ascii(m.identification());
+            case "1A 9B" -> m.block9B() == null ? "7F 1A 11" : "5A 9B " + m.block9B();
             case "1A 90" -> m.reportsVin() ? "5A 90 " + ascii(VIN) : "7F 1A 12";
-            case "18 02" -> {
-                if (ch.busyLeft > 0) {
-                    ch.busyLeft--;
-                    yield "7F 18 21";
-                }
-                yield m.dtcResponse();
-            }
-            default -> String.format("7F %s 11", request.substring(0, 2));
+            default -> request.startsWith("12 00 04 ") ? kwpFreezeFrame(ch, request.substring(9))
+                    : String.format("7F %s 11", request.substring(0, 2));
         };
     }
 
-    // ------------------------------------------------------------------ ISO-TP (engine)
+    /**
+     * {@code 12 00 04 [hi] [lo]}: a made-up record in the layout diag decodes (status, priority 2, frequency 1,
+     * reset counter 255, 12345 km + 1000 km per earlier record of the same code, 18:02:50, no environment values)
+     * for the next stored entry of that code, else {@code 7F 12 31}. Like the real engine, repeating the request
+     * for a code stored several times returns the next record.
+     */
+    private static String kwpFreezeFrame(Channel ch, String code) {
+        String dtcs = ch.module.dtcResponse();
+        int wanted = ch.freezeFramesRead.getOrDefault(code, 0);
+        int seen = 0;
+        for (int at = 6; at + 8 <= dtcs.length(); at += 9) { // "58 nn " then "hi lo st " records
+            if (dtcs.startsWith(code, at)) {
+                if (seen++ < wanted) {
+                    continue;
+                }
+                ch.freezeFramesRead.put(code, wanted + 1);
+                String status = dtcs.substring(at + 6, at + 8);
+                int km = 12345 + 1000 * wanted;
+                return String.format("52 00 6C 01 %s 02 01 FF %02X %02X %02X 00 01 FF BF 20 B1 04 %s", status,
+                        km >> 16, (km >> 8) & 0xFF, km & 0xFF, code);
+            }
+        }
+        return "7F 12 31";
+    }
 
-    private List<Reply> isoTp(CanFrame sent) {
+    // ------------------------------------------------------------------ ISO-TP (UDS modules)
+
+    private List<Reply> isoTp(UdsModule m, CanFrame sent) {
         int pci = sent.dataByte(0) >> 4;
         if (pci == 0x3) { // our flow control: send the rest of the response
             List<Reply> out = new ArrayList<>();
             while (!pendingConsecutiveFrames.isEmpty()) {
-                out.add(Reply.now(new CanFrame(UDS_RESPONSE_ID, false, pendingConsecutiveFrames.poll())));
+                out.add(Reply.now(new CanFrame(pendingResponseId, false, pendingConsecutiveFrames.poll())));
             }
             return out;
         }
@@ -237,13 +344,15 @@ final class DemoCar implements SimulatedAdapter.Responder {
         if (request.equals("3E 80")) {
             return List.of(); // suppressed positive response
         }
-        byte[] response = Hex.parse(ENGINE.getOrDefault(request, String.format("7F %s 11", request.substring(0, 2))));
+        byte[] response = Hex.parse(m.answers().getOrDefault(request,
+                String.format("7F %s %s", request.substring(0, 2), request.startsWith("22") ? "31" : "11")));
         pendingConsecutiveFrames.clear();
+        pendingResponseId = m.responseId();
         if (response.length <= 7) {
             byte[] frame = padded();
             frame[0] = (byte) response.length;
             System.arraycopy(response, 0, frame, 1, response.length);
-            return List.of(Reply.now(new CanFrame(UDS_RESPONSE_ID, false, frame)));
+            return List.of(Reply.now(new CanFrame(m.responseId(), false, frame)));
         }
         byte[] first = padded();
         first[0] = (byte) (0x10 | (response.length >> 8));
@@ -257,7 +366,7 @@ final class DemoCar implements SimulatedAdapter.Responder {
             pendingConsecutiveFrames.add(cf);
             seq++;
         }
-        return List.of(Reply.now(new CanFrame(UDS_RESPONSE_ID, false, first)));
+        return List.of(Reply.now(new CanFrame(m.responseId(), false, first)));
     }
 
     private static byte[] padded() {

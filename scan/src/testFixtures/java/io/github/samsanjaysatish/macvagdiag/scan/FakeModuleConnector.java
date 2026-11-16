@@ -9,6 +9,7 @@ import io.github.samsanjaysatish.macvagdiag.diag.DtcList;
 import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
 import io.github.samsanjaysatish.macvagdiag.diag.FakeDiagnosticService;
 import io.github.samsanjaysatish.macvagdiag.diag.FreezeFrame;
+import io.github.samsanjaysatish.macvagdiag.diag.InstallationList;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import java.time.Duration;
@@ -29,10 +30,10 @@ import java.util.function.Supplier;
  *
  * <pre>{@code
  * FakeModuleConnector car = t.connector();
- * car.kwp("17", () -> FakeDiagnosticService.kwp()
+ * car.kwp("09", () -> FakeDiagnosticService.kwp()
  *         .onStartSession(ok(RawBytes.ofHex("50 89")))
  *         .onReadDtcs(ok(dtcList())));
- * car.uds("01", () -> ...);   // engine on its ISO-TP link
+ * car.uds("17", () -> ...);   // instruments on their ISO-TP link
  * }</pre>
  */
 public final class FakeModuleConnector implements ModuleConnector {
@@ -59,6 +60,8 @@ public final class FakeModuleConnector implements ModuleConnector {
     private volatile String adapterDetail = "fake adapter";
     private volatile int adapterFailures;
     private volatile RequestObserver observer;
+    private final List<ModuleAddress> connectedModules = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, Integer> sendsPerOperation = new ConcurrentHashMap<>();
 
     public FakeModuleConnector(FakeTimeSource time) {
         this.time = time;
@@ -71,7 +74,14 @@ public final class FakeModuleConnector implements ModuleConnector {
         return on(link, perConnection);
     }
 
-    /** A UDS module on its ISO-TP link (01 and 02 have one). */
+    /** Every module {@code connect} was called for, in order (with repeats). */
+    public List<ModuleAddress> connectedModules() {
+        synchronized (connectedModules) {
+            return List.copyOf(connectedModules);
+        }
+    }
+
+    /** A UDS module on its ISO-TP link (05, 15, 17, 25, 2B, 77). */
     public FakeModuleConnector uds(String address, Supplier<FakeDiagnosticService> perConnection) {
         ModuleLink link = ModuleAddress.parse(address).links().stream().filter(l -> l instanceof ModuleLink.IsoTp)
                 .findFirst().orElseThrow(() -> new IllegalArgumentException(address + " has no ISO-TP link"));
@@ -86,6 +96,18 @@ public final class FakeModuleConnector implements ModuleConnector {
     /** From now on, connections to this module's TP 2.0 link fail their keep-alive (and close). */
     public FakeModuleConnector keepAliveFails(String address) {
         ModuleAddress.parse(address).links().stream().filter(l -> l instanceof ModuleLink.Tp20).forEach(keepAliveFails::add);
+        return this;
+    }
+
+    /**
+     * How many requests one call of {@code operation} (e.g. {@code "READ_IDENTIFICATION"}) reports to scan's audit
+     * hook as sent. By default each operation reports its worst case ({@code DiagOp} cost), as if the module needed
+     * every request; set less to model e.g. KWP identification answered by {@code 1A 9B} (2 of 6 sent), so scan
+     * refunds the rest of its reservation.
+     */
+    public FakeModuleConnector sends(String operation, int requests) {
+        DiagOp.valueOf(operation); // must be a real operation
+        sendsPerOperation.put(operation, requests);
         return this;
     }
 
@@ -108,7 +130,7 @@ public final class FakeModuleConnector implements ModuleConnector {
         }
     }
 
-    /** Events for one module, e.g. {@code "17"}. */
+    /** Events for one module, e.g. {@code "09"}. */
     public List<Event> events(String module) {
         return events().stream().filter(e -> e.module().equals(module)).toList();
     }
@@ -183,7 +205,11 @@ public final class FakeModuleConnector implements ModuleConnector {
     }
 
     @Override
-    public ModuleConnection connect(ModuleLink link) throws ConnectFailedException {
+    public ModuleConnection connect(ModuleAddress module, ModuleLink link) throws ConnectFailedException {
+        if (!module.links().contains(link)) {
+            throw new IllegalArgumentException(link + " is not a link of " + module);
+        }
+        connectedModules.add(module);
         Supplier<FakeDiagnosticService> s = scripted.get(link);
         if (s == null) {
             record(link, "connect-failed");
@@ -266,6 +292,7 @@ public final class FakeModuleConnector implements ModuleConnector {
                 if (!isOpen) {
                     throw new IllegalStateException("call on a closed fake connection: " + what);
                 }
+                reportSends(what);
                 if (!callDuration.isZero()) {
                     time.advance(callDuration);
                 }
@@ -273,6 +300,22 @@ public final class FakeModuleConnector implements ModuleConnector {
                 return body.get();
             } finally {
                 inFlight.decrementAndGet();
+            }
+        }
+
+        /**
+         * Tells scan's audit hook about the requests this call "sends", as the real transport does before each
+         * request: it writes the audit line and refuses anything beyond the operation's reservation (then it
+         * throws, as with the real transport, and nothing more happens).
+         */
+        private void reportSends(String what) {
+            RequestObserver o = observer;
+            if (o == null) {
+                return;
+            }
+            int n = sendsPerOperation.getOrDefault(what, DiagOp.valueOf(what).cost(fake.protocol()));
+            for (int i = 0; i < n; i++) {
+                o.sending(link.describe(), fake.protocol().name(), "FAKE " + what + " " + (i + 1));
             }
         }
 
@@ -304,6 +347,11 @@ public final class FakeModuleConnector implements ModuleConnector {
         @Override
         public DiagResult<FreezeFrame> readFreezeFrame(Dtc dtc) {
             return call("READ_FREEZE_FRAME", () -> fake.readFreezeFrame(dtc));
+        }
+
+        @Override
+        public DiagResult<InstallationList> readInstallationList() {
+            return call("READ_INSTALLATION_LIST", fake::readInstallationList);
         }
     }
 }

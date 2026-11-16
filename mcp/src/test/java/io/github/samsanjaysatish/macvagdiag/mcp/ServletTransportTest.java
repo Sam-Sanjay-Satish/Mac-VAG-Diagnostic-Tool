@@ -111,7 +111,7 @@ class ServletTransportTest {
         assertEquals(false, result.get("isError"), String.valueOf(result));
         Map<String, Object> structured = map(result.get("structuredContent"));
         assertEquals("FAULTS", structured.get("status"));
-        assertEquals("P0401-00", map(list(structured.get("faults")).getFirst()).get("id"));
+        assertEquals("001025", map(list(structured.get("faults")).getFirst()).get("id"));
         String text = (String) map(list(result.get("content")).getFirst()).get("text");
         assertEquals(structured, parse(text));
         assertFalse(text.contains(SampleScanData.VIN), "VIN masked over the wire too");

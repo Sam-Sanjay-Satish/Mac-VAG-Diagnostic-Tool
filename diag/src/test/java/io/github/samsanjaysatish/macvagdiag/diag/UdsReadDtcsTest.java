@@ -12,15 +12,15 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** UDS {@code 19 02 FF} → {@code 59 02 [mask] ([DTC 3] [status])...}, hand-written bytes. */
+/** UDS {@code 19 02 AE} → {@code 59 02 [mask] ([DTC 3] [status])...}, hand-written bytes. */
 class UdsReadDtcsTest {
 
     private final FakeTimeSource time = new FakeTimeSource();
 
     private DiagResult<DtcList> run(String response) throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", response);
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", response);
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
-        assertEquals(List.of("19 02 FF"), ch.requestsHex());
+        assertEquals(List.of("19 02 AE"), ch.requestsHex());
         return r;
     }
 
@@ -31,7 +31,7 @@ class UdsReadDtcsTest {
     }
 
     @Test
-    @DisplayName("19 02 FF -> 59 02 FF with zero DTCs")
+    @DisplayName("19 02 AE -> 59 02 FF with zero DTCs")
     void zero() throws InterruptedException {
         DtcList l = read("59 02 FF");
         assertEquals(List.of(), l.dtcs());
@@ -40,7 +40,7 @@ class UdsReadDtcsTest {
     }
 
     @Test
-    @DisplayName("19 02 FF -> 59 02 FF 04 01 00 2F with one DTC: P0401")
+    @DisplayName("19 02 AE -> 59 02 FF 04 01 00 2F with one DTC: P0401")
     void one() throws InterruptedException {
         DtcList l = read("59 02 FF 04 01 00 2F");
         assertEquals(List.of(new UdsDtc(0x040100, 0x2F)), l.dtcs());
@@ -50,7 +50,7 @@ class UdsReadDtcsTest {
     }
 
     @Test
-    @DisplayName("19 02 FF with four DTCs: P, C, B and U codes in order")
+    @DisplayName("19 02 AE with four DTCs: P, C, B and U codes in order")
     void many() throws InterruptedException {
         DtcList l = read("59 02 FF 04 01 00 2F 44 20 11 09 90 12 00 08 C1 00 87 24");
         assertEquals(List.of("P0401", "C0420", "B1012", "U0100"), l.dtcs().stream().map(Dtc::displayCode).toList());

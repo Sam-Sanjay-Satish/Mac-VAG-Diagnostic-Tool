@@ -41,7 +41,8 @@ public final class ScanReport {
         field(b, "", "Modules", String.format("%d checked, %d responding, %d with faults, %d fault code(s)",
                 r.modules().size(), r.respondingModules().size(),
                 r.modules().stream().filter(m -> !m.faults().isEmpty()).count(), r.faultCount()));
-        field(b, "", "Discovery", "fixed list of known addresses (gateway installation list not read yet)");
+        field(b, "", "Discovery", r.fromInstallationList() ? "the gateway's installation list"
+                : "fixed list of known modules (the gateway's installation list was not read)");
         if (r.cancelled()) {
             b.append("Cancelled before the end.\n");
         }
@@ -49,6 +50,14 @@ public final class ScanReport {
             field(b, "", "Note", note);
         }
         b.append('\n');
+        if (r.fromInstallationList()) {
+            b.append("Installed modules (gateway status):\n");
+            for (GatewayStatus g : r.installationList()) {
+                String name = g.module().map(ModuleAddress::name).orElse("(not in our module table)");
+                b.append(INDENT).append(String.format("%s-%-28s Status: %s%n", g.hex(), name, g.vcdsText()));
+            }
+            b.append('\n');
+        }
         for (ModuleResult m : r.modules()) {
             b.append(RULE).append('\n');
             module(b, m);
@@ -67,9 +76,10 @@ public final class ScanReport {
     private static void module(StringBuilder b, ModuleResult m) {
         b.append(String.format("Address %s: %-30s Status: %s%n", m.module().hex(), m.module().name(), status(m)));
         m.link().ifPresent(l -> field(b, INDENT, "Protocol", l.describe()));
+        m.gatewayStatus().ifPresent(g -> field(b, INDENT, "Gateway", g.vcdsText()));
         m.identification().ifPresent(id -> identification(b, id));
         switch (m.status()) {
-            case NOT_RESPONDING, SKIPPED -> {
+            case NOT_RESPONDING, SKIPPED, GATEWAY_STATUS_ONLY -> {
             }
             default -> faults(b, m);
         }
@@ -83,7 +93,10 @@ public final class ScanReport {
         return switch (m.status()) {
             case OK -> "OK";
             case FAULTS -> m.faults().size() + (m.faults().size() == 1 ? " fault" : " faults");
-            case NOT_RESPONDING -> "no response (not installed, or not reachable)";
+            case NOT_RESPONDING -> m.gatewayStatus().map(g -> "no response (gateway: " + g.vcdsText() + ")")
+                    .orElse("no response (not installed, or not reachable)");
+            case GATEWAY_STATUS_ONLY -> m.gatewayStatus().map(g -> g.vcdsText() + " (from the gateway)")
+                    .orElse("not contacted (no diagnostic link of its own)");
             default -> m.status().description();
         };
     }
@@ -129,7 +142,8 @@ public final class ScanReport {
     private static void freezeFrame(StringBuilder b, FreezeFrameData ff) {
         switch (ff.availability()) {
             case READ -> {
-                b.append(CODE_INDENT).append("Freeze frame (raw, not decoded yet):\n");
+                b.append(CODE_INDENT).append(ff.fields().isEmpty() ? "Freeze frame (raw, not decoded yet):\n"
+                        : "Freeze frame (decoded fields, then the raw records):\n");
                 for (FreezeFrameData.Field f : ff.fields()) {
                     b.append(CODE_INDENT).append("   ").append(f.kind()).append(": ").append(f.value()).append('\n');
                 }

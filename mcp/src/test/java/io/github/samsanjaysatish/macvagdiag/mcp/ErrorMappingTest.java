@@ -61,10 +61,10 @@ class ErrorMappingTest {
 
     @Test
     void moduleNotRespondingPointsAtListModules() {
-        scan.failWith(ScanRefusedException.moduleNotResponding(ModuleAddress.parse("16"), Duration.ofSeconds(5),
+        scan.failWith(ScanRefusedException.moduleNotResponding(ModuleAddress.parse("2E"), Duration.ofSeconds(5),
                 "no answer to channel setup"));
-        String message = error(tools.call("read_fault_codes", Map.of("module", "16")));
-        assertTrue(message.contains("module 16 (Steering Wheel) not responding"), message);
+        String message = error(tools.call("read_fault_codes", Map.of("module", "2E")));
+        assertTrue(message.contains("module 2E (Media Player) not responding"), message);
         assertTrue(message.contains("Call list_modules"), message);
         assertTrue(message.contains("only after 5 s"), message);
     }

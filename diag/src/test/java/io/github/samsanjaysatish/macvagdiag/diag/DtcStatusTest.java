@@ -11,6 +11,7 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /** Status byte decoding: every bit on its own, then combinations; the raw byte is always kept. */
@@ -67,41 +68,80 @@ class DtcStatusTest {
     }
 
     @ParameterizedTest(name = "KWP status bit {0}")
-    @ValueSource(ints = {0, 1, 2, 3, 4, 5, 6})
-    @DisplayName("KWP (UNCONFIRMED): bits 0..6 alone are symptom code 1<<bit, not intermittent")
+    @ValueSource(ints = {0, 1, 2, 3, 4})
+    @DisplayName("KWP: bits 0..4 alone are fault type 1<<bit, intermittent (bit 6 clear), no MIL")
     void kwpLowBits(int bit) {
         KwpDtcStatus s = new KwpDtcStatus(1 << bit);
-        assertEquals(1 << bit, s.symptomCode());
-        assertFalse(s.intermittent());
-        assertEquals(List.of(), s.flagNames());
+        assertEquals(1 << bit, s.faultType());
+        assertTrue(s.intermittent());
+        assertFalse(s.milOn());
+        assertEquals(List.of("Intermittent"), s.flagNames());
         assertEquals(1 << bit, s.raw());
     }
 
     @Test
-    @DisplayName("KWP (UNCONFIRMED): bit 7 alone is intermittent with symptom 0")
-    void kwpBit7() {
-        KwpDtcStatus s = new KwpDtcStatus(0x80);
-        assertTrue(s.intermittent());
-        assertEquals(0, s.symptomCode());
-        assertEquals(List.of("intermittent (UNCONFIRMED)"), s.flagNames());
+    @DisplayName("KWP: bit 5 alone (UNCONFIRMED meaning) changes nothing decoded; bit 6 alone = not intermittent; bit 7 = MIL ON")
+    void kwpHighBits() {
+        KwpDtcStatus b5 = new KwpDtcStatus(0x20);
+        assertEquals(0, b5.faultType());
+        assertTrue(b5.intermittent());
+        assertEquals(List.of("Intermittent"), b5.flagNames());
+        KwpDtcStatus b6 = new KwpDtcStatus(0x40);
+        assertFalse(b6.intermittent());
+        assertFalse(b6.milOn());
+        assertEquals(List.of(), b6.flagNames());
+        KwpDtcStatus b7 = new KwpDtcStatus(0x80);
+        assertTrue(b7.milOn());
+        assertTrue(b7.intermittent());
+        assertEquals(List.of("Intermittent", "MIL ON"), b7.flagNames());
+    }
+
+    @ParameterizedTest(name = "KWP {0} -> {1}, type {2}, {3}")
+    @DisplayName("KWP: every status byte of the 2026-11-13 capture against the VCDS log")
+    @CsvSource(delimiter = '|', value = {
+        "E0 | 11100000 | 000 | MIL ON",
+        "60 | 01100000 | 000 | ",
+        "20 | 00100000 | 000 | Intermittent",
+        "61 | 01100001 | 001 | ",
+        "22 | 00100010 | 002 | Intermittent",
+        "21 | 00100001 | 001 | Intermittent",
+        "62 | 01100010 | 002 | ",
+        "26 | 00100110 | 006 | Intermittent",
+        "64 | 01100100 | 004 | ",
+    })
+    void kwpCaptured(String hex, String bits, String type, String words) {
+        KwpDtcStatus s = new KwpDtcStatus(Integer.parseInt(hex, 16));
+        assertEquals(bits, s.bits());
+        assertEquals(type, s.faultTypeText());
+        assertEquals(words == null ? List.of() : List.of(words), s.flagNames());
     }
 
     @Test
-    @DisplayName("KWP (UNCONFIRMED): A3 = intermittent 35, 23 = static 35, FF, 00; raw always kept")
-    void kwpCombinations() {
-        KwpDtcStatus a3 = new KwpDtcStatus(0xA3);
-        assertTrue(a3.intermittent());
-        assertEquals(35, a3.symptomCode());
-        KwpDtcStatus s23 = new KwpDtcStatus(0x23);
-        assertFalse(s23.intermittent());
-        assertEquals(35, s23.symptomCode());
-        assertEquals(127, new KwpDtcStatus(0xFF).symptomCode());
-        assertTrue(new KwpDtcStatus(0xFF).intermittent());
-        assertEquals(0, new KwpDtcStatus(0x00).symptomCode());
+    @DisplayName("KWP: every value 00..FF keeps its raw byte; type, bit 5, bit 6, bit 7 rebuild it")
+    void kwpRoundTrip() {
         for (int raw = 0; raw <= 0xFF; raw++) {
             KwpDtcStatus s = new KwpDtcStatus(raw);
-            assertEquals(raw, s.symptomCode() | (s.intermittent() ? KwpDtcStatus.INTERMITTENT_BIT : 0), "no bit lost");
+            int rebuilt = s.faultType() | (raw & KwpDtcStatus.UNKNOWN_BIT_5)
+                    | (s.intermittent() ? 0 : KwpDtcStatus.NOT_INTERMITTENT_BIT) | (s.milOn() ? KwpDtcStatus.MIL_ON_BIT : 0);
+            assertEquals(raw, rebuilt, "no bit lost");
+            assertEquals(raw, Integer.parseInt(s.bits(), 2));
         }
+        assertEquals("E0 (11100000, type 000, MIL ON)", new KwpDtcStatus(0xE0).toString());
+        assertEquals("61 (01100001, type 001)", new KwpDtcStatus(0x61).toString());
+    }
+
+    @ParameterizedTest(name = "UDS {0} -> {1}")
+    @DisplayName("UDS VCDS wording: 08 and 09 from the 2026-11-13 VCDS log, plus the words' bits on their own")
+    @CsvSource(delimiter = '|', value = {
+        "08 | Intermittent - Confirmed - Tested Since Memory Clear",
+        "09 | Confirmed - Tested Since Memory Clear",
+        "01 | Tested Since Memory Clear",
+        "11 | ",
+        "10 | Intermittent",
+        "00 | Intermittent - Tested Since Memory Clear",
+    })
+    void udsVcdsWording(String hex, String text) {
+        assertEquals(text == null ? "" : text, new UdsDtcStatus(Integer.parseInt(hex, 16)).vcdsText());
     }
 
     @Test

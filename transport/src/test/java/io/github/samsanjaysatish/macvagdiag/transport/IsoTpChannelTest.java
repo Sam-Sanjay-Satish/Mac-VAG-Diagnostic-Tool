@@ -22,8 +22,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * ISO-TP against hand-written frames on {@code 7E0 → 7E8}. Padding {@code AA} and the IDs are UNCONFIRMED for this
- * car; frame formats are ISO 15765-2.
+ * ISO-TP against hand-written frames on {@code 7E0 → 7E8}. Our frames are padded with {@code 55} and our flow
+ * control is {@code 30 00 01}, as VCDS does on this car (2026-11-13 capture); the module's frames here are padded
+ * with {@code AA}, as the car's ECUs do. Frame formats are ISO 15765-2.
  */
 class IsoTpChannelTest {
 
@@ -67,11 +68,20 @@ class IsoTpChannelTest {
         return Hex.format(java.util.Arrays.copyOfRange(b, from, to));
     }
 
-    /** {@code hex} padded with AA to 8 bytes. */
+    /** A module frame: {@code hex} padded with AA to 8 bytes (ECUs on this car pad with AA). */
     private static String padded(String hex) {
+        return pad(hex, "AA");
+    }
+
+    /** A tester frame: {@code hex} padded with 55 to 8 bytes, like VCDS (2026-11-13 capture). */
+    private static String paddedTx(String hex) {
+        return pad(hex, "55");
+    }
+
+    private static String pad(String hex, String with) {
         StringBuilder sb = new StringBuilder(hex);
         for (int n = Hex.parse(hex).length; n < 8; n++) {
-            sb.append(" AA");
+            sb.append(' ').append(with);
         }
         return sb.toString();
     }
@@ -85,20 +95,20 @@ class IsoTpChannelTest {
     }
 
     @Test
-    @DisplayName("single frame: 7E0 03 22 F1 87 AA AA AA AA → 7E8 07 62 F1 87 30 33 4C 39")
+    @DisplayName("single frame: 7E0 03 22 F1 87 55 55 55 55 → 7E8 07 62 F1 87 30 33 4C 39")
     void singleFrame() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 87 AA AA AA AA", reply(0x7E8, "07 62 F1 87 30 33 4C 39"));
+        script.expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "07 62 F1 87 30 33 4C 39"));
         assertEquals(received("62 F1 87 30 33 4C 39"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
         script.assertComplete();
     }
 
     @Test
-    @DisplayName("FF 10 14 + our flow control 30 00 00 + CF 21, 22: 20-byte response reassembled")
+    @DisplayName("FF 10 14 + our flow control 30 00 01 + CF 21, 22: 20-byte response reassembled")
     void firstFrameAndConsecutiveFrames() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
-                .expect(0x7E0, "30 00 00 AA AA AA AA AA", reply(0x7E8, "21 54 56 49 4E 30 31 32"),
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55", reply(0x7E8, "21 54 56 49 4E 30 31 32"),
                         reply(0x7E8, "22 33 34 35 36 37 38 39"));
 
         assertEquals(received("62 F1 90 54 45 53 54 56 49 4E 30 31 32 33 34 35 36 37 38 39"),
@@ -107,15 +117,15 @@ class IsoTpChannelTest {
     }
 
     @Test
-    @DisplayName("our block size 2: flow control 30 02 00 again after every 2 consecutive frames")
+    @DisplayName("our block size 2: flow control 30 02 01 again after every 2 consecutive frames")
     void ourBlockSize() throws Exception {
-        IsoTpChannel ch = open(new IsoTpChannel.Parameters(2, 0x00, 0xAA, Duration.ofMillis(1000),
+        IsoTpChannel ch = open(new IsoTpChannel.Parameters(2, IsoTpChannel.OUR_SEPARATION_TIME_MIN, IsoTpChannel.PADDING, Duration.ofMillis(1000),
                 Duration.ofMillis(1000), 10));
         byte[] r = counting(30);
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 1E " + hexRange(r, 0, 6)))
-                .expect(0x7E0, "30 02 00 AA AA AA AA AA", reply(0x7E8, "21 " + hexRange(r, 6, 13)),
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 1E " + hexRange(r, 0, 6)))
+                .expect(0x7E0, "30 02 01 55 55 55 55 55", reply(0x7E8, "21 " + hexRange(r, 6, 13)),
                         reply(0x7E8, "22 " + hexRange(r, 13, 20)))
-                .expect(0x7E0, "30 02 00 AA AA AA AA AA", reply(0x7E8, "23 " + hexRange(r, 20, 27)),
+                .expect(0x7E0, "30 02 01 55 55 55 55 55", reply(0x7E8, "23 " + hexRange(r, 20, 27)),
                         reply(0x7E8, padded("24 " + hexRange(r, 27, 30))));
 
         assertEquals(new Response.Received(r), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
@@ -131,7 +141,7 @@ class IsoTpChannelTest {
                 .expect(0x7E0, "21 " + hexRange(p, 6, 13))
                 .expect(0x7E0, "22 " + hexRange(p, 13, 20), reply(0x7E8, "30 00 00 AA AA AA AA AA"))
                 .expect(0x7E0, "23 " + hexRange(p, 20, 27))
-                .expect(0x7E0, padded("24 " + hexRange(p, 27, 30)), reply(0x7E8, "02 7E 00 AA AA AA AA AA"));
+                .expect(0x7E0, paddedTx("24 " + hexRange(p, 27, 30)), reply(0x7E8, "02 7E 00 AA AA AA AA AA"));
 
         assertEquals(received("7E 00"), ch.exchange(p, TIMEOUT));
         script.assertComplete();
@@ -174,7 +184,7 @@ class IsoTpChannelTest {
         byte[] p = counting(10);
         script.expect(0x7E0, "10 0A " + hexRange(p, 0, 6), reply(0x7E8, "31 00 00 AA AA AA AA AA"),
                         replyAfter(Duration.ofMillis(500), 0x7E8, "30 00 00 AA AA AA AA AA"))
-                .expect(0x7E0, padded("21 " + hexRange(p, 6, 10)), reply(0x7E8, "02 7E 00 AA AA AA AA AA"));
+                .expect(0x7E0, paddedTx("21 " + hexRange(p, 6, 10)), reply(0x7E8, "02 7E 00 AA AA AA AA AA"));
         assertEquals(received("7E 00"), ch.exchange(p, TIMEOUT));
         script.assertComplete();
     }
@@ -231,10 +241,10 @@ class IsoTpChannelTest {
     @DisplayName("CF sequence 21 then 23: PROTOCOL_ERROR, channel stays usable")
     void consecutiveFrameSequenceError() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
-                .expect(0x7E0, "30 00 00 AA AA AA AA AA", reply(0x7E8, "21 54 56 49 4E 30 31 32"),
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55", reply(0x7E8, "21 54 56 49 4E 30 31 32"),
                         reply(0x7E8, "23 33 34 35 36 37 38 39"))
-                .expect(0x7E0, "03 22 F1 87 AA AA AA AA", reply(0x7E8, "03 62 F1 87 AA AA AA AA"));
+                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 62 F1 87 AA AA AA AA"));
 
         Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
         assertEquals(Response.Failed.Kind.PROTOCOL_ERROR, f.kind());
@@ -247,8 +257,8 @@ class IsoTpChannelTest {
     @DisplayName("gap after FF longer than N_Cr 1000 ms: TRANSPORT_TIMEOUT")
     void consecutiveFrameTimeout() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
-                .expect(0x7E0, "30 00 00 AA AA AA AA AA");
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55");
         Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("22 F1 90"), Duration.ofSeconds(5)));
         assertEquals(Response.Failed.Kind.TRANSPORT_TIMEOUT, f.kind());
         assertEquals(Duration.ofMillis(1000), time.elapsed());
@@ -258,7 +268,7 @@ class IsoTpChannelTest {
     @DisplayName("no response: TimedOut after exactly the caller's 1 s")
     void responseTimeout() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA");
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55");
         assertEquals(new Response.TimedOut(TIMEOUT), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
         assertEquals(TIMEOUT, time.elapsed());
         assertTrue(ch.isOpen());
@@ -276,8 +286,8 @@ class IsoTpChannelTest {
             sn = (sn + 1) & 0x0F;
         }
         assertEquals(17, cfs.size());
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 7D " + hexRange(r, 0, 6)))
-                .expect(0x7E0, "30 00 00 AA AA AA AA AA", cfs.toArray(SimulatedAdapter.Reply[]::new));
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 7D " + hexRange(r, 0, 6)))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55", cfs.toArray(SimulatedAdapter.Reply[]::new));
         assertEquals(new Response.Received(r), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
         script.assertComplete();
     }
@@ -290,7 +300,7 @@ class IsoTpChannelTest {
         script.expect(0x7E0, "10 7D " + hexRange(p, 0, 6), reply(0x7E8, "30 00 00 AA AA AA AA AA"));
         int sn = 1;
         for (int offset = 6; offset < 125; offset += 7) {
-            String frame = padded(String.format("2%X ", sn) + hexRange(p, offset, Math.min(offset + 7, 125)));
+            String frame = paddedTx(String.format("2%X ", sn) + hexRange(p, offset, Math.min(offset + 7, 125)));
             if (offset + 7 >= 125) {
                 script.expect(0x7E0, frame, reply(0x7E8, "02 7E 00 AA AA AA AA AA"));
             } else {
@@ -306,7 +316,7 @@ class IsoTpChannelTest {
     @DisplayName("7F 22 78 (response pending), then awaitResponse gets 62 F1 87 ... 3 s later without resending")
     void responsePending() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 87 AA AA AA AA", reply(0x7E8, "03 7F 22 78 AA AA AA AA"),
+        script.expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 7F 22 78 AA AA AA AA"),
                 replyAfter(Duration.ofSeconds(3), 0x7E8, "05 62 F1 87 30 33 AA AA"));
         assertEquals(received("7F 22 78"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
         assertEquals(received("62 F1 87 30 33"), ch.awaitResponse(Duration.ofSeconds(5)));
@@ -318,7 +328,7 @@ class IsoTpChannelTest {
     @DisplayName("other IDs, an invalid single frame 00 and a stray flow control are ignored")
     void ignoresNoise() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 87 AA AA AA AA", reply(0x7E9, "03 62 F1 87 AA AA AA AA"),
+        script.expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E9, "03 62 F1 87 AA AA AA AA"),
                 reply(0x7E8, "00 62 F1 87 AA AA AA AA"), reply(0x7E8, "30 00 00 AA AA AA AA AA"),
                 reply(0x7E8, "21 00 00 00 00 00 00 00"), reply(0x7E8, "03 62 F1 87 AA AA AA AA"));
         assertEquals(received("62 F1 87"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
@@ -328,8 +338,8 @@ class IsoTpChannelTest {
     @DisplayName("a single frame during a multi-frame response replaces it (ISO 15765-2)")
     void singleFrameInterruptsMultiFrame() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
-                .expect(0x7E0, "30 00 00 AA AA AA AA AA", reply(0x7E8, "03 7F 22 31 AA AA AA AA"));
+        script.expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 14 62 F1 90 54 45 53"))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55", reply(0x7E8, "03 7F 22 31 AA AA AA AA"));
         assertEquals(received("7F 22 31"), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
     }
 
@@ -337,9 +347,9 @@ class IsoTpChannelTest {
     @DisplayName("frames waiting before a request (a late response) are discarded")
     void staleFramesDiscarded() throws Exception {
         IsoTpChannel ch = open();
-        script.expect(0x7E0, "03 22 F1 87 AA AA AA AA",
+        script.expect(0x7E0, "03 22 F1 87 55 55 55 55",
                         replyAfter(Duration.ofSeconds(2), 0x7E8, "03 62 F1 87 AA AA AA AA"))
-                .expect(0x7E0, "03 22 F1 90 AA AA AA AA", reply(0x7E8, "03 62 F1 90 AA AA AA AA"));
+                .expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "03 62 F1 90 AA AA AA AA"));
         assertInstanceOf(Response.TimedOut.class, ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
         time.advance(Duration.ofSeconds(5));
         assertEquals(received("62 F1 90"), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
@@ -384,5 +394,30 @@ class IsoTpChannelTest {
         assertEquals(Response.Failed.Kind.ADAPTER_ERROR,
                 assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("22 F1 87"), TIMEOUT)).kind());
         assertFalse(ch.isOpen());
+    }
+
+    @Test
+    @DisplayName("defaults match VCDS on this car: pad 55, our flow control 30 00 01 (BS 0, STmin 1 ms)")
+    void defaultsMatchVcds() {
+        assertEquals(0x55, IsoTpChannel.Parameters.DEFAULTS.padding());
+        assertEquals(0x00, IsoTpChannel.Parameters.DEFAULTS.blockSize());
+        assertEquals(0x01, IsoTpChannel.Parameters.DEFAULTS.separationTimeMin());
+    }
+
+    @Test
+    @DisplayName("receiving accepts any padding: AA, 55, 00 and a short frame without padding")
+    void receiveAcceptsAnyPadding() throws Exception {
+        IsoTpChannel ch = open();
+        script.expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 62 F1 87 AA AA AA AA"))
+                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 62 F1 87 55 55 55 55"))
+                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 62 F1 87 00 00 00 00"))
+                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "03 62 F1 87"))
+                .expect(0x7E0, "03 22 F1 90 55 55 55 55", reply(0x7E8, "10 0A 62 F1 90 41 42 43"))
+                .expect(0x7E0, "30 00 01 55 55 55 55 55", reply(0x7E8, "21 44 45 46 47 00 00 00"));
+        for (int i = 0; i < 4; i++) {
+            assertEquals(received("62 F1 87"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT), "padding variant " + i);
+        }
+        assertEquals(received("62 F1 90 41 42 43 44 45 46 47"), ch.exchange(Hex.parse("22 F1 90"), TIMEOUT));
+        script.assertComplete();
     }
 }

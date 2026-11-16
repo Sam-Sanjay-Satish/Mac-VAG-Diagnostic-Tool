@@ -13,7 +13,12 @@ public enum ModuleStatus {
     /** Stopped partway by a limit or a cancel; see the notes and the limit. */
     INCOMPLETE("incomplete"),
     /** Not asked at all (Auto-Scan stopped by a limit, a cancel or a lost adapter). */
-    SKIPPED("skipped");
+    SKIPPED("skipped"),
+    /**
+     * Not contacted because it has no diagnostic link of its own (04 Steering Angle on the target car): the only
+     * status is the gateway's, in {@link ModuleResult#gatewayStatus()}, as in VCDS.
+     */
+    GATEWAY_STATUS_ONLY("status from the gateway only");
 
     private final String description;
 

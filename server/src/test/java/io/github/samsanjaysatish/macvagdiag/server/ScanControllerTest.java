@@ -78,46 +78,69 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.modules[0].address").value("01"))
                 .andExpect(jsonPath("$.modules[0].name").value("Engine"))
                 .andExpect(jsonPath("$.modules[0].reachability").value("RESPONDING"))
-                .andExpect(jsonPath("$.modules[0].link.type").value("ISOTP"))
-                .andExpect(jsonPath("$.modules[0].link.protocol").value("UDS"))
-                .andExpect(jsonPath("$.modules[0].link.description").value("UDS over ISO-TP (7E0/7E8)"))
-                .andExpect(jsonPath("$.modules[3].address").value("08"))
-                .andExpect(jsonPath("$.modules[3].reachability").value("NOT_RESPONDING"))
-                .andExpect(jsonPath("$.modules[3].link").value(nullValue()))
-                .andExpect(jsonPath("$.modules[3].checkedAt").value("2026-01-01T10:00:00Z"));
+                .andExpect(jsonPath("$.modules[0].link.type").value("TP20"))
+                .andExpect(jsonPath("$.modules[0].link.protocol").value("KWP2000"))
+                .andExpect(jsonPath("$.modules[0].link.description").value("KWP2000 over TP 2.0 (logical address 01)"))
+                .andExpect(jsonPath("$.modules[0].gatewayStatus").value("Malfunction 0010"))
+                .andExpect(jsonPath("$.modules[3].address").value("04"))
+                .andExpect(jsonPath("$.modules[3].reachability").value("NOT_CHECKED"))
+                .andExpect(jsonPath("$.modules[8].link.description").value("UDS over ISO-TP (714/77E)"))
+                .andExpect(jsonPath("$.modules[12].address").value("2E"))
+                .andExpect(jsonPath("$.modules[12].reachability").value("NOT_RESPONDING"))
+                .andExpect(jsonPath("$.modules[12].gatewayStatus").value("Cannot be reached 1100"))
+                .andExpect(jsonPath("$.modules[12].link").value(nullValue()))
+                .andExpect(jsonPath("$.modules[12].checkedAt").value("2026-01-01T10:00:00Z"));
     }
 
     @Test
-    @DisplayName("GET /api/modules/01/faults: UDS code with status flags, freeze frame records and identification")
+    @DisplayName("GET /api/modules/01/faults: KWP code with P-code, status flags, freeze frame and identification")
     void engineFaults() throws Exception {
         mvc.perform(get("/api/modules/01/faults")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.address").value("01"))
                 .andExpect(jsonPath("$.status").value("FAULTS"))
                 .andExpect(jsonPath("$.statusText").value("1 fault code"))
                 .andExpect(jsonPath("$.responded").value(true))
+                .andExpect(jsonPath("$.gatewayStatus").value("Malfunction 0010"))
                 .andExpect(jsonPath("$.faultListComplete").value(true))
-                .andExpect(jsonPath("$.requests").value(6))
+                .andExpect(jsonPath("$.requests").value(5))
                 .andExpect(jsonPath("$.limitHit").value(nullValue()))
                 .andExpect(jsonPath("$.faults", hasSize(1)))
-                .andExpect(jsonPath("$.faults[0].code").value("P0401"))
-                .andExpect(jsonPath("$.faults[0].displayCode").value("P0401-00"))
-                .andExpect(jsonPath("$.faults[0].protocol").value("UDS"))
-                .andExpect(jsonPath("$.faults[0].record").value("04 01 00 2F"))
-                .andExpect(jsonPath("$.faults[0].status").value(0x2F))
-                .andExpect(jsonPath("$.faults[0].statusHex").value("2F"))
-                .andExpect(jsonPath("$.faults[0].statusFlags", hasSize(5)))
-                .andExpect(jsonPath("$.faults[0].statusFlags[3]").value("confirmedDTC"))
-                .andExpect(jsonPath("$.faults[0].failureType").value("00"))
-                .andExpect(jsonPath("$.faults[0].obdCode").value(nullValue()))
+                .andExpect(jsonPath("$.faults[0].code").value("001025"))
+                .andExpect(jsonPath("$.faults[0].displayCode").value("001025"))
+                .andExpect(jsonPath("$.faults[0].protocol").value("KWP2000"))
+                .andExpect(jsonPath("$.faults[0].record").value("04 01 E2"))
+                .andExpect(jsonPath("$.faults[0].status").value(0xE2))
+                .andExpect(jsonPath("$.faults[0].statusHex").value("E2"))
+                .andExpect(jsonPath("$.faults[0].statusText").value("E2 (11100010): type 002, MIL ON"))
+                .andExpect(jsonPath("$.faults[0].statusFlags", hasSize(1)))
+                .andExpect(jsonPath("$.faults[0].statusFlags[0]").value("MIL ON"))
+                .andExpect(jsonPath("$.faults[0].failureType").value(nullValue()))
+                .andExpect(jsonPath("$.faults[0].obdCode").value("P0401"))
                 .andExpect(jsonPath("$.faults[0].freezeFrame.availability").value("READ"))
-                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].id").value("19 04 04 01 00 FF"))
-                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].hex").value("01 01 F4 0D 2A"))
-                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].text").value(nullValue()))
-                .andExpect(jsonPath("$.faults[0].freezeFrame.responses[0]").value("59 04 04 01 00 2F 01 01 F4 0D 2A"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].id").value("12 00 04 04 01"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.fields[0].kind").value("MILEAGE"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.fields[0].value").value("12345 km"))
                 .andExpect(jsonPath("$.identification.partNumber").value("03L906018XX"))
-                .andExpect(jsonPath("$.identification.raw[0].id").value("22 F1 90"))
+                .andExpect(jsonPath("$.identification.raw[0].id").value("1A 90"))
                 .andExpect(jsonPath("$.identification.raw[0].text").value(SampleScanData.VIN));
         assertEquals(new FakeScanService.Call("readFaultCodes", "web", "01"), fake.calls().getFirst());
+    }
+
+    @Test
+    @DisplayName("GET /api/modules/17/faults: UDS code with status flags, failure type and freeze frame records")
+    void udsFaults() throws Exception {
+        mvc.perform(get("/api/modules/17/faults")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.link.type").value("ISOTP"))
+                .andExpect(jsonPath("$.link.protocol").value("UDS"))
+                .andExpect(jsonPath("$.faults[0].code").value("U0115"))
+                .andExpect(jsonPath("$.faults[0].displayCode").value("U0115-00"))
+                .andExpect(jsonPath("$.faults[0].statusHex").value("08"))
+                .andExpect(jsonPath("$.faults[0].statusFlags[0]").value("confirmedDTC"))
+                .andExpect(jsonPath("$.faults[0].failureType").value("00"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].id").value("19 06 C1 15 00 FF"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].hex").value("01 05 02"))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.records[0].text").value(nullValue()))
+                .andExpect(jsonPath("$.faults[0].freezeFrame.responses[0]").value("59 06 C1 15 00 08 01 05 02"));
     }
 
     @Test
@@ -129,14 +152,15 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.faults[0].code").value("01314"))
                 .andExpect(jsonPath("$.faults[0].failureType").value(nullValue()))
                 .andExpect(jsonPath("$.faults[0].freezeFrame.availability").value("NOT_AVAILABLE"))
-                .andExpect(jsonPath("$.faults[0].freezeFrame.message").value(containsString("allowlist")));
+                .andExpect(jsonPath("$.faults[0].freezeFrame.message").value(containsString("no freeze frame stored")));
     }
 
     @Test
     @DisplayName("module not responding is a result: 200 with status NOT_RESPONDING, not an error")
     void moduleNotRespondingIsData() throws Exception {
-        mvc.perform(get("/api/modules/08/faults")).andExpect(status().isOk())
+        mvc.perform(get("/api/modules/2E/faults")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("NOT_RESPONDING"))
+                .andExpect(jsonPath("$.statusText").value("no response (gateway: Cannot be reached 1100)"))
                 .andExpect(jsonPath("$.responded").value(false))
                 .andExpect(jsonPath("$.link").value(nullValue()))
                 .andExpect(jsonPath("$.faults", hasSize(0)));
@@ -174,14 +198,18 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.events[0].type").value("Started"))
                 .andExpect(jsonPath("$.events[1].message").value("scanning 01 / Engine... (1 of " + n + ")"))
                 .andExpect(jsonPath("$.modules", hasSize(n)))
-                .andExpect(jsonPath("$.modules[0].faults[0].code").value("P0401"))
+                .andExpect(jsonPath("$.modules[0].faults[0].code").value("001025"))
+                .andExpect(jsonPath("$.result.fromInstallationList").value(true))
+                .andExpect(jsonPath("$.result.installationList", hasSize(16)))
+                .andExpect(jsonPath("$.result.installationList[12].address").value("2E"))
+                .andExpect(jsonPath("$.result.installationList[12].status").value("Cannot be reached 1100"))
                 .andExpect(jsonPath("$.result.vin").value(SampleScanData.VIN))
                 .andExpect(jsonPath("$.result.vinSource").value("01"))
                 .andExpect(jsonPath("$.result.durationMs").value(6000))
                 .andExpect(jsonPath("$.result.modulesChecked").value(n))
-                .andExpect(jsonPath("$.result.modulesResponding").value(7))
-                .andExpect(jsonPath("$.result.modulesWithFaults").value(2))
-                .andExpect(jsonPath("$.result.faultCodes").value(2))
+                .andExpect(jsonPath("$.result.modulesResponding").value(13))
+                .andExpect(jsonPath("$.result.modulesWithFaults").value(3))
+                .andExpect(jsonPath("$.result.faultCodes").value(3))
                 .andExpect(jsonPath("$.result.cancelled").value(false))
                 .andExpect(jsonPath("$.failure").value(nullValue()));
     }
@@ -261,14 +289,14 @@ class ScanControllerTest {
     @Test
     @DisplayName("module in scan's not-responding back-off (nothing sent) → 429 with Retry-After and the module")
     void moduleBackOff() throws Exception {
-        fake.failWith(ScanRefusedException.moduleNotResponding(ModuleAddress.parse("16"), Duration.ofSeconds(5),
+        fake.failWith(ScanRefusedException.moduleNotResponding(ModuleAddress.parse("2E"), Duration.ofSeconds(5),
                 "no answer to the channel setup"));
-        mvc.perform(get("/api/modules/16/faults")).andExpect(status().isTooManyRequests())
+        mvc.perform(get("/api/modules/2E/faults")).andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", "5"))
                 .andExpect(jsonPath("$.error").value("MODULE_NOT_RESPONDING"))
                 .andExpect(jsonPath("$.limit").value("MODULE_NOT_RESPONDING_BACKOFF"))
-                .andExpect(jsonPath("$.module").value("16"))
-                .andExpect(jsonPath("$.message").value(containsString("module 16 (Steering Wheel) not responding")));
+                .andExpect(jsonPath("$.module").value("2E"))
+                .andExpect(jsonPath("$.message").value(containsString("module 2E (Media Player) not responding")));
     }
 
     @Test

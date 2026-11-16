@@ -18,6 +18,7 @@ final class DiagRequest {
 
     // Service IDs, as on the bus.
     static final int SID_START_SESSION = 0x10;
+    static final int SID_KWP_READ_FREEZE_FRAME = 0x12;
     static final int SID_KWP_READ_DTC_BY_STATUS = 0x18;
     static final int SID_UDS_READ_DTC_INFORMATION = 0x19;
     static final int SID_KWP_READ_ECU_IDENTIFICATION = 0x1A;
@@ -33,6 +34,14 @@ final class DiagRequest {
     static final int KWP_SESSION_VW_DIAGNOSTIC = 0x89;
     static final int UDS_SESSION_DEFAULT = 0x01;
     static final int UDS_SESSION_EXTENDED = 0x03;
+
+    /** KWP {@code 18 [status] FF 00}: group {@code FF 00} = all DTCs. */
+    static final int KWP_DTC_GROUP_ALL_HI = 0xFF;
+    static final int KWP_DTC_GROUP_ALL_LO = 0x00;
+    /** KWP {@code 12 00 04 ...}: freeze frame number {@code 00}. */
+    static final int KWP_FREEZE_FRAME_NUMBER = 0x00;
+    /** KWP {@code 12 00 04 ...}: record access method {@code 04} = by DTC. */
+    static final int KWP_RECORD_ACCESS_BY_DTC = 0x04;
 
     /** UDS {@code 3E 00}: tester present, positive response wanted ({@code 7E 00}). */
     static final int UDS_TESTER_PRESENT_SUB_FUNCTION = 0x00;
@@ -76,11 +85,36 @@ final class DiagRequest {
     }
 
     /**
-     * KWP {@code 18 [status]}: read DTCs by status, one parameter byte. The ISO 14230 long form
-     * {@code 18 [status] [group hi] [group lo]} is refused by the allowlist and can't be built here.
+     * KWP {@code 18 00 FF 00} or {@code 18 02 FF 00}: read DTCs by status, all groups (ISO 14230 4-byte form).
+     * Exactly the two requests VCDS sent on the 2026-11-13 capture and the allowlist has (approved 2026-11-15).
+     * The 2-byte {@code 18 xx} form is allowlisted too but VCDS never used it, so it isn't built here.
      */
-    static DiagRequest kwpReadDtcsByStatus(int status) {
-        return new DiagRequest(ApplicationProtocol.KWP2000, SID_KWP_READ_DTC_BY_STATUS, checkByte(status, "status"));
+    static DiagRequest kwpReadDtcsByStatus(KwpOptions.DtcRequest request) {
+        return new DiagRequest(ApplicationProtocol.KWP2000, SID_KWP_READ_DTC_BY_STATUS, request.statusByte(),
+                KWP_DTC_GROUP_ALL_HI, KWP_DTC_GROUP_ALL_LO);
+    }
+
+    /**
+     * KWP {@code 12 00 04 [hi] [lo]}: freeze frame {@code 00} by DTC (record access method {@code 04}) for the
+     * 16-bit code. The only 5-byte {@code 12} form the allowlist has (approved 2026-11-15).
+     */
+    static DiagRequest kwpReadFreezeFrameByDtc(int code16) {
+        if (code16 < 0 || code16 > 0xFFFF) {
+            throw new IllegalArgumentException("KWP DTC must be 16 bits: " + code16);
+        }
+        return new DiagRequest(ApplicationProtocol.KWP2000, SID_KWP_READ_FREEZE_FRAME, KWP_FREEZE_FRAME_NUMBER,
+                KWP_RECORD_ACCESS_BY_DTC, (code16 >> 8) & 0xFF, code16 & 0xFF);
+    }
+
+    /**
+     * KWP2000 {@code 22 [DID hi] [DID lo]}: one UDS-style data identifier over a TP 2.0 / KWP2000 channel, as
+     * 03, 09 and 19 answer it on the capture (approved 2026-11-15). One DID per request.
+     */
+    static DiagRequest kwpReadDataByIdentifier(int did) {
+        if (did < 0 || did > 0xFFFF) {
+            throw new IllegalArgumentException("DID must be 16 bits: " + did);
+        }
+        return new DiagRequest(ApplicationProtocol.KWP2000, SID_UDS_READ_DATA_BY_IDENTIFIER, (did >> 8) & 0xFF, did & 0xFF);
     }
 
     // ---- UDS ----
@@ -105,7 +139,10 @@ final class DiagRequest {
                 checkByte(mask, "mask"));
     }
 
-    /** UDS {@code 19 04 [DTC 3 bytes] [record]}: snapshot (freeze frame) record by DTC. */
+    /**
+     * UDS {@code 19 04 [DTC 3 bytes] [record]}: snapshot (freeze frame) record by DTC. Allowlisted, but not sent by
+     * {@code readFreezeFrame} since 2026-11-16 (VCDS reads {@code 19 06} only on this car); kept for later use.
+     */
     static DiagRequest udsReadSnapshot(int dtc, int record) {
         return udsByDtc(UDS_REPORT_SNAPSHOT_BY_DTC, dtc, record);
     }

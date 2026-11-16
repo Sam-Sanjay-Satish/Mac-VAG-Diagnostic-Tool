@@ -20,14 +20,38 @@ public final class DtcCodes {
     }
 
     /**
-     * UNCONFIRMED: a VAG KWP2000 code as VCDS shows it, assumed to be the 5-digit decimal of the 16-bit value,
-     * e.g. {@code 41 2C} = {@code 16684}. Check against the VCDS log.
+     * A VAG KWP2000 code as VCDS shows it: the decimal of the 16-bit value, 5 digits, e.g. gateway {@code 05 18}
+     * = {@code 01304} (confirmed against the 2026-11-13 VCDS log).
      */
     public static String vagFiveDigit(int code16) {
+        return String.format("%05d", check16(code16));
+    }
+
+    /**
+     * The same decimal, 6 digits, as VCDS shows codes that have a P-code: engine {@code 2B A6} = {@code 011174}
+     * (all 12 engine codes of the 2026-11-13 VCDS log). UNCONFIRMED that the P-code is what decides the width.
+     */
+    public static String vagSixDigit(int code16) {
+        return String.format("%06d", check16(code16));
+    }
+
+    /**
+     * A UDS DTC as VCDS numbers it: the decimal of the 24-bit value, at least 4 digits, e.g. {@code 90 3E 12} =
+     * {@code 9453074}, {@code 00 00 16} = {@code 0022} (all 5 UDS codes of the 2026-11-13 VCDS log). The
+     * 4-digit minimum is from that one short sample.
+     */
+    public static String vagUdsNumber(int code24) {
+        if (code24 < 0 || code24 > 0xFFFFFF) {
+            throw new IllegalArgumentException("Not a 24-bit code: " + code24);
+        }
+        return String.format("%04d", code24);
+    }
+
+    private static int check16(int code16) {
         if (code16 < 0 || code16 > 0xFFFF) {
             throw new IllegalArgumentException("Not a 16-bit code: " + code16);
         }
-        return String.format("%05d", code16);
+        return code16;
     }
 
     private static void checkByte(int b) {

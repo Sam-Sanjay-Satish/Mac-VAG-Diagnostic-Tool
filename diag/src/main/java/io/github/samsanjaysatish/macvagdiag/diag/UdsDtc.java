@@ -4,9 +4,12 @@ import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import java.util.Objects;
 
 /**
- * A UDS DTC: 3 code bytes (2 bytes SAE J2012 code + failure type byte) and a status byte, e.g. record
- * {@code 04 01 00 2F} = {@code P0401}, failure type {@code 00}, status {@code 2F}. VCDS also shows a VW-specific
- * number for UDS faults; that mapping is for the VCDS log to tell.
+ * A UDS DTC: 3 code bytes (2 bytes SAE J2012 code + failure type byte) and a status byte, e.g. instruments record
+ * {@code 90 3E 12 08} = {@code B103E}, failure type {@code 12}, status {@code 08}, VCDS number 9453074
+ * ({@link #vagNumber()}).
+ *
+ * <p>VCDS's failure-type text doesn't always match the third byte (it shows {@code 90 3E 12} as {@code 1B}, and
+ * {@code 00 00 16} as {@code U1066 00}); it takes those from its own database. Ours stays the raw byte.
  *
  * @param code the 24-bit value of the three code bytes, high byte first
  * @param status the status byte
@@ -43,6 +46,11 @@ public record UdsDtc(int code, UdsDtcStatus status) implements Dtc {
     @Override
     public String displayCode() {
         return DtcCodes.saeJ2012((code >> 16) & 0xFF, (code >> 8) & 0xFF);
+    }
+
+    /** VCDS's number for this fault: the decimal of the 24 bits, e.g. {@code 9453074}; see {@link DtcCodes#vagUdsNumber}. */
+    public String vagNumber() {
+        return DtcCodes.vagUdsNumber(code);
     }
 
     /** The third code byte, the failure type (ISO 14229-1 DTCFailureTypeByte). */

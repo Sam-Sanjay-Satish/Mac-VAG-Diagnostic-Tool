@@ -11,11 +11,13 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** UDS {@code 19 04} / {@code 19 06} by DTC, kept raw; KWP not available yet. */
+/**
+ * UDS freeze frame: {@code 19 06 [DTC] FF} only (VCDS never sent {@code 19 04} on the 2026-11-13 capture), kept raw.
+ * KWP freeze frames: {@link KwpFreezeFrameTest}, {@link KwpCaptureTest}.
+ */
 class FreezeFrameTest {
 
     private static final UdsDtc P0401 = new UdsDtc(0x040100, 0x2F);
-    private static final String SNAPSHOT = "59 04 04 01 00 2F 01 02 F4 0D 00 F4 0C 0B B8";
     private static final String EXTENDED = "59 06 04 01 00 2F 01 05 02 FF 03 00 12 34";
 
     private final FakeTimeSource time = new FakeTimeSource();
@@ -26,100 +28,72 @@ class FreezeFrameTest {
     }
 
     @Test
-    @DisplayName("19 04 04 01 00 FF and 19 06 04 01 00 FF: both kept raw with their request as ID, responses kept whole")
-    void both() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 04 01 00 FF", SNAPSHOT)
-                .on("19 06 04 01 00 FF", EXTENDED);
+    @DisplayName("19 06 04 01 00 FF only, no 19 04: kept raw with its request as ID, response kept whole")
+    void extendedDataOnly() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", EXTENDED);
         FreezeFrame ff = ok(new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
-        assertEquals(List.of("19 04 04 01 00 FF", "19 06 04 01 00 FF"), ch.requestsHex());
+        assertEquals(List.of("19 06 04 01 00 FF"), ch.requestsHex());
+        assertEquals(1, UdsDiagnosticService.FREEZE_FRAME_REQUESTS);
         assertEquals(P0401, ff.dtc());
-        assertEquals(List.of(
-                new RawRecord("19 04 04 01 00 FF", RawBytes.ofHex("01 02 F4 0D 00 F4 0C 0B B8")),
-                new RawRecord("19 06 04 01 00 FF", RawBytes.ofHex("01 05 02 FF 03 00 12 34"))), ff.records());
-        assertEquals(List.of(RawBytes.ofHex(SNAPSHOT), RawBytes.ofHex(EXTENDED)), ff.responses());
-        assertEquals(List.of(), ff.fields(), "nothing decoded from memory");
+        assertEquals(List.of(new RawRecord("19 06 04 01 00 FF", RawBytes.ofHex("01 05 02 FF 03 00 12 34"))), ff.records());
+        assertEquals(List.of(RawBytes.ofHex(EXTENDED)), ff.responses());
+        assertEquals(List.of(), ff.fields(), "the record layout is still a hypothesis");
         assertEquals(List.of(), ff.notes());
     }
 
     @Test
-    @DisplayName("19 04 -> 7F 19 31 (no snapshot), 19 06 answers: success with a note")
-    void snapshotRefused() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 04 01 00 FF", "7F 19 31")
-                .on("19 06 04 01 00 FF", EXTENDED);
-        FreezeFrame ff = ok(new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
-        assertEquals(1, ff.records().size());
-        assertEquals(1, ff.notes().size());
-        assertTrue(ff.notes().getFirst().startsWith("19 04 04 01 00 FF: Negative response 7F 19 31"), ff.notes().getFirst());
-    }
-
-    @Test
-    @DisplayName("19 04 and 19 06 both -> 7F 19 31: the first Negative is returned")
-    void bothRefused() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 04 01 00 FF", "7F 19 31")
-                .on("19 06 04 01 00 FF", "7F 19 12");
+    @DisplayName("19 06 -> 7F 19 31: the Negative is returned")
+    void refused() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", "7F 19 31");
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class,
                 new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
         assertEquals(0x31, n.response().code());
     }
 
     @Test
-    @DisplayName("19 04 -> 7F 19 21 busy stops: Busy, 19 06 not sent")
-    void busyStops() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 04 04 01 00 FF", "7F 19 21");
+    @DisplayName("19 06 -> 7F 19 21 busy: Busy, sent once")
+    void busy() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", "7F 19 21");
         assertInstanceOf(DiagResult.Busy.class, new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
-        assertEquals(List.of("19 04 04 01 00 FF"), ch.requestsHex());
+        assertEquals(List.of("19 06 04 01 00 FF"), ch.requestsHex());
     }
 
     @Test
-    @DisplayName("59 04 04 01 00 2F with no records, and 59 06 for another DTC: notes, nothing dropped")
+    @DisplayName("59 06 04 01 00 2F with no records, and 59 06 for another DTC: notes, nothing dropped")
     void emptyAndEchoMismatch() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 04 01 00 FF", "59 04 04 01 00 2F")
-                .on("19 06 04 01 00 FF", "59 06 03 00 00 2F 01 05");
-        FreezeFrame ff = ok(new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
-        assertEquals(List.of(new RawRecord("19 06 04 01 00 FF", RawBytes.ofHex("01 05"))), ff.records());
-        assertEquals(2, ff.notes().size(), ff.notes().toString());
-        assertTrue(ff.notes().get(0).contains("no records stored"));
-        assertTrue(ff.notes().get(1).contains("answered for DTC 03 00 00"));
-        assertEquals(2, ff.responses().size());
+        FreezeFrame empty = ok(new UdsDiagnosticService(
+                FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", "59 06 04 01 00 2F"), time).readFreezeFrame(P0401));
+        assertEquals(List.of(), empty.records());
+        assertEquals(1, empty.notes().size());
+        assertTrue(empty.notes().getFirst().contains("no records stored"));
+
+        FreezeFrame other = ok(new UdsDiagnosticService(
+                FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", "59 06 03 00 00 2F 01 05"), time).readFreezeFrame(P0401));
+        assertEquals(List.of(new RawRecord("19 06 04 01 00 FF", RawBytes.ofHex("01 05"))), other.records());
+        assertTrue(other.notes().getFirst().contains("answered for DTC 03 00 00"), other.notes().toString());
+        assertEquals(1, other.responses().size());
     }
 
     @Test
-    @DisplayName("truncated 59 04 04 01 header and wrong echo 59 02 ...: whole response kept raw with a note")
+    @DisplayName("truncated 59 06 04 01 header, and a wrong echo 59 02 ...: whole response kept raw with a note")
     void badHeaderKeptWhole() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 04 01 00 FF", "59 04 04 01")
-                .on("19 06 04 01 00 FF", "59 02 04 01 00 2F 01");
-        FreezeFrame ff = ok(new UdsDiagnosticService(ch, time).readFreezeFrame(P0401));
-        assertEquals(List.of(
-                new RawRecord("19 04 04 01 00 FF (whole response, unexpected header)", RawBytes.ofHex("59 04 04 01")),
-                new RawRecord("19 06 04 01 00 FF (whole response, unexpected header)", RawBytes.ofHex("59 02 04 01 00 2F 01"))),
-                ff.records());
-        assertEquals(2, ff.notes().size());
+        for (String bad : List.of("59 06 04 01", "59 02 04 01 00 2F 01")) {
+            FreezeFrame ff = ok(new UdsDiagnosticService(
+                    FakeDiagnosticChannel.uds().on("19 06 04 01 00 FF", bad), time).readFreezeFrame(P0401));
+            assertEquals(List.of(new RawRecord("19 06 04 01 00 FF (whole response, unexpected header)", RawBytes.ofHex(bad))),
+                    ff.records());
+            assertEquals(1, ff.notes().size());
+        }
     }
 
     @Test
-    @DisplayName("19 04 with a 24-bit DTC C1 00 87 is built byte for byte")
+    @DisplayName("19 06 with a 24-bit DTC 90 3E 12 (17's B103E on the capture) is built byte for byte")
     void dtcBytes() throws InterruptedException {
-        UdsDtc u0100 = new UdsDtc(0xC10087, 0x09);
+        UdsDtc b103e = new UdsDtc(0x903E12, 0x08);
         FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 04 C1 00 87 FF", "59 04 C1 00 87 09")
-                .on("19 06 C1 00 87 FF", "7F 19 31");
-        assertTrue(new UdsDiagnosticService(ch, time).readFreezeFrame(u0100).isSuccess());
-        assertEquals(List.of("19 04 C1 00 87 FF", "19 06 C1 00 87 FF"), ch.requestsHex());
-    }
-
-    @Test
-    @DisplayName("KWP freeze frame is NotAvailable and sends nothing (12 xx can't name a DTC)")
-    void kwpNotAvailable() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp();
-        DiagResult<FreezeFrame> r = new KwpDiagnosticService(ch, time).readFreezeFrame(new KwpDtc(0x412C, 0xA3));
-        DiagResult.NotAvailable<?> n = assertInstanceOf(DiagResult.NotAvailable.class, r);
-        assertEquals(KwpDiagnosticService.FREEZE_FRAME_NOT_AVAILABLE, n.reason());
-        assertEquals(List.of(), ch.calls());
+                .on("19 06 90 3E 12 FF", "59 06 90 3E 12 08 01 02 8C 02 A3 05 7A 8E 00 01 FF BF 2E 8E");
+        assertTrue(new UdsDiagnosticService(ch, time).readFreezeFrame(b103e).isSuccess());
+        assertEquals(List.of("19 06 90 3E 12 FF"), ch.requestsHex());
     }
 
     @Test

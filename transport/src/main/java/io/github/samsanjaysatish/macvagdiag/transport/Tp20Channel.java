@@ -32,7 +32,8 @@ import org.slf4j.LoggerFactory;
  *       timeout and T3 as the minimum gap between our data packets.</li>
  *   <li>Data: {@code [op|seq]}, op {@code 0} more+ACK, {@code 1} last+ACK, {@code 2} more, {@code 3} last;
  *       {@code B[seq+1]} ACK ready, {@code 9[seq+1]} ACK not ready. The first packet of a message carries the
- *       16-bit length (big-endian) then 5 data bytes; later packets carry 7. Each side counts its own sequence
+ *       16-bit length field (big-endian; bit 15 is a flag, set on response-pending messages, see
+ *       {@link #LENGTH_FLAG_MASK}) then 5 data bytes; later packets carry 7. Each side counts its own sequence
  *       numbers mod 16 from channel open, across messages.</li>
  *   <li>{@code A3} channel test → {@code A1}; {@code A8} disconnect from either side, answered with {@code A8}.</li>
  * </ul>
@@ -68,7 +69,18 @@ final class Tp20Channel implements RawChannel {
 
     static final int FIRST_PACKET_DATA_BYTES = 5;
     static final int PACKET_DATA_BYTES = 7;
-    static final int MAX_MESSAGE_LENGTH = 0xFFFF;
+
+    /**
+     * Flag bit in the 2-byte length of a message's first packet. Confirmed by the 2026-11-13 capture: every
+     * {@code 7F xx 78} (response pending) arrived with length {@code 80 03}, e.g. {@code 300#14 80 03 7F 22 78};
+     * every other message had it clear. Its meaning isn't known; we mask it and use the low 15 bits as the length.
+     * Bit 14 was never seen set and is deliberately <b>not</b> masked: a length with bit 14 set announces over
+     * 16 KiB, which no module here sends, so the message fails with {@code PROTOCOL_ERROR} instead of being
+     * misread silently.
+     */
+    static final int LENGTH_FLAG_MASK = 0x8000;
+    /** Longest message we send: 15 bits, so we never set {@link #LENGTH_FLAG_MASK} ourselves. */
+    static final int MAX_MESSAGE_LENGTH = 0x7FFF;
     static final int MAX_BLOCK_SIZE = 15;
 
     /**
@@ -149,7 +161,9 @@ final class Tp20Channel implements RawChannel {
             }
             if (!DiagnosticCanIds.isNegotiableTp20TxId(testerTx) || testerRx == testerTx) {
                 String msg = String.format("Module %02X negotiated transmit ID %03X (receive %03X), outside the "
-                        + "expected TP 2.0 range %03X..%03X; nothing sent on it", moduleAddress, testerTx, testerRx,
+                        + "expected TP 2.0 set %s and %03X..%03X; nothing sent on it", moduleAddress, testerTx,
+                        testerRx, DiagnosticCanIds.TP20_NEGOTIATED_TX_EXACT.stream().sorted()
+                                .map(id -> String.format("%03X", id)).toList(),
                         DiagnosticCanIds.TP20_NEGOTIATED_TX_MIN, DiagnosticCanIds.TP20_NEGOTIATED_TX_MAX);
                 log.error(msg);
                 throw new TransportException(TransportException.Reason.DISALLOWED_CAN_ID, msg);
@@ -539,7 +553,12 @@ final class Tp20Channel implements RawChannel {
                 fail(Response.Failed.Kind.PROTOCOL_ERROR, "First TP 2.0 packet without a length: " + f, true);
                 return;
             }
-            rxExpectedLength = (Byte.toUnsignedInt(data[1]) << 8) | Byte.toUnsignedInt(data[2]);
+            int lengthField = (Byte.toUnsignedInt(data[1]) << 8) | Byte.toUnsignedInt(data[2]);
+            rxExpectedLength = lengthField & ~LENGTH_FLAG_MASK;
+            if (lengthField != rxExpectedLength) {
+                log.debug("TP 2.0 length field {} from module {} has the flag bit set; length {}",
+                        String.format("%04X", lengthField), String.format("%02X", moduleAddress), rxExpectedLength);
+            }
             rxBuffer = new ByteArrayOutputStream(rxExpectedLength);
             from = 3;
         }

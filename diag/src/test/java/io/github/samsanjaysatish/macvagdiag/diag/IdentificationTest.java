@@ -28,7 +28,7 @@ class IdentificationTest {
     // ---- KWP ----
 
     @Test
-    @DisplayName("KWP 1A 9B and 1A 90: 9B block kept raw (not decoded yet), VIN decoded")
+    @DisplayName("KWP 1A 9B (16 bytes, not the 46-byte layout) and 1A 90: 9B block kept raw with a note, VIN decoded")
     void kwpBoth() throws InterruptedException {
         FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp()
                 .on("1A 9B", "5A 9B " + KWP_9B_DATA)
@@ -39,8 +39,8 @@ class IdentificationTest {
         assertEquals(List.of(new RawRecord("1A 9B", RawBytes.ofHex(KWP_9B_DATA)),
                 new RawRecord("1A 90", RawBytes.ofHex(Ascii.hex(Ascii.TEST_VIN)))), id.records());
         assertEquals(Map.of(EcuIdentification.Field.VIN, Ascii.TEST_VIN), id.fields());
-        assertEquals(Optional.empty(), id.partNumber(), "1A 9B layout is UNCONFIRMED, so nothing is decoded from it");
-        assertEquals(List.of(), id.notes());
+        assertEquals(Optional.empty(), id.partNumber(), "only the 46-byte block is decoded");
+        assertEquals(List.of("1A 9B: 16 bytes, not the 46-byte block layout; kept raw"), id.notes());
     }
 
     @Test
@@ -52,17 +52,67 @@ class IdentificationTest {
         EcuIdentification id = ok(new KwpDiagnosticService(ch, time).readIdentification());
         assertEquals(1, id.records().size());
         assertEquals(Optional.empty(), id.vin());
-        assertEquals(1, id.notes().size());
-        assertTrue(id.notes().getFirst().startsWith("1A 90: Negative response 7F 1A 12 subFunctionNotSupported"), id.notes().getFirst());
+        assertEquals(2, id.notes().size());
+        assertTrue(id.notes().get(1).startsWith("1A 90: Negative response 7F 1A 12 subFunctionNotSupported"), id.notes().get(1));
     }
 
     @Test
-    @DisplayName("KWP 1A 9B -> 7F 1A 11 and 1A 90 -> 7F 1A 31: the first Negative is returned")
+    @DisplayName("KWP 1A 9B -> 7F 1A 11 and every 22 DID -> 7F 22 31: the 1A 9B Negative is returned, 1A 90 not sent")
     void kwpAllRefused() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", "7F 1A 11").on("1A 90", "7F 1A 31");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", "7F 1A 11");
+        for (String did : List.of("22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97", "22 06 00")) {
+            ch.on(did, "7F 22 31");
+        }
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(0x1A, n.response().serviceId());
         assertEquals(0x11, n.response().code());
-        assertEquals(2, ch.requestsHex().size());
+        assertEquals(List.of("1A 9B", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97", "22 06 00"), ch.requestsHex());
+        assertEquals(KwpDiagnosticService.MAX_IDENTIFICATION_REQUESTS, ch.requestsHex().size());
+    }
+
+    @Test
+    @DisplayName("KWP 22 path: some DIDs refused, one not text, coding as hex: the rest decoded, each refusal noted")
+    void kwpDidPathPartial() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", "7F 1A 11")
+                .on("22 F1 87", "62 F1 87 " + Ascii.hex("1K0907379BL"))
+                .on("22 F1 89", "7F 22 31")
+                .on("22 F1 91", "62 F1 91 01 02")
+                .on("22 F1 97", "62 F1 98 41")
+                .on("22 06 00", "62 06 00 B1 4B 40 0C");
+        EcuIdentification id = ok(new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(Map.of(EcuIdentification.Field.PART_NUMBER, "1K0907379BL", EcuIdentification.Field.CODING, "B14B400C"),
+                id.fields());
+        assertEquals(List.of("22 F1 87", "22 F1 91", "22 F1 97 (whole response, DID not echoed)", "22 06 00"),
+                id.records().stream().map(RawRecord::id).toList());
+        assertEquals(4, id.notes().size(), id.notes().toString()); // 1A 9B, F1 89, F1 91 not text, F1 97 echo
+    }
+
+    @Test
+    @DisplayName("KWP 22 path: a DID timing out stops identification: TimedOut, later DIDs not sent")
+    void kwpDidPathTimeoutStops() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", "7F 1A 11")
+                .on("22 F1 87", "62 F1 87 41").onTimeout("22 F1 89");
+        assertInstanceOf(DiagResult.TimedOut.class, new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(List.of("1A 9B", "22 F1 87", "22 F1 89"), ch.requestsHex());
+    }
+
+    @Test
+    @DisplayName("KWP 1A 9B -> 7F 22 11 (negative for another SID: malformed) and 1A 90 refused: the Malformed is returned")
+    void kwpMalformedThenRefused() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", "7F 22 11").on("1A 90", "7F 1A 31");
+        assertInstanceOf(DiagResult.Malformed.class, new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(List.of("1A 9B", "1A 90"), ch.requestsHex());
+    }
+
+    @Test
+    @DisplayName("KWP 1A 9B with an unknown coding type 05: coding kept raw with a note, the rest decoded")
+    void kwpUnknownCodingType() throws InterruptedException {
+        String block = CaptureBytes.ENGINE_ID_9B.replace("03 00 C3 9E", "05 00 C3 9E");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", block).on("1A 90", "7F 1A 12");
+        EcuIdentification id = ok(new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(Optional.empty(), id.coding());
+        assertEquals(Optional.of("03L997030M"), id.partNumber());
+        assertTrue(id.notes().getFirst().contains("coding type 05 not known"), id.notes().toString());
     }
 
     @Test
@@ -92,6 +142,17 @@ class IdentificationTest {
                 new RawRecord("1A 90", RawBytes.ofHex("41 42"))), id.records());
         assertEquals(Map.of(), id.fields());
         assertEquals(2, id.notes().size());
+    }
+
+    @Test
+    @DisplayName("KWP 1A 9B decoded and 1A 90 is a VIN: both, no notes")
+    void kwpBlockAndVin() throws InterruptedException {
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", CaptureBytes.ENGINE_ID_9B)
+                .on("1A 90", "5A 90 " + Ascii.hex(Ascii.TEST_VIN));
+        EcuIdentification id = ok(new KwpDiagnosticService(ch, time).readIdentification());
+        assertEquals(Optional.of(Ascii.TEST_VIN), id.vin());
+        assertEquals(Optional.of("0050078"), id.coding());
+        assertEquals(List.of(), id.notes());
     }
 
     // ---- UDS ----

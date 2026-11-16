@@ -26,7 +26,7 @@ public final class AutoScanJob {
     private final String id;
     private final Caller caller;
     private final Instant startedAt;
-    private final int totalModules;
+    private volatile int totalModules;
     private final ScanProgressListener listener;
     private final CompletableFuture<AutoScanResult> future = new CompletableFuture<>();
     private final List<ScanEvent> events = new CopyOnWriteArrayList<>();
@@ -77,8 +77,17 @@ public final class AutoScanJob {
         return startedAt;
     }
 
+    /**
+     * How many modules this scan checks: the known modules with a link until the gateway's installation list has
+     * been read (the {@link ScanEvent.Started} event), then the number planned from it.
+     */
     public int totalModules() {
         return totalModules;
+    }
+
+    /** Sets the planned module count once discovery is done (before {@link ScanEvent.Started} is emitted). */
+    void planned(int total) {
+        this.totalModules = total;
     }
 
     /** Every progress event so far, in order. */

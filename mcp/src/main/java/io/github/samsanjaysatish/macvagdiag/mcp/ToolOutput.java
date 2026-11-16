@@ -5,6 +5,7 @@ import io.github.samsanjaysatish.macvagdiag.scan.FaultCode;
 import io.github.samsanjaysatish.macvagdiag.scan.FreezeFrameData;
 import io.github.samsanjaysatish.macvagdiag.scan.LimitHit;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
+import io.github.samsanjaysatish.macvagdiag.scan.GatewayStatus;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAvailability;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleIdentity;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleLink;
@@ -66,16 +67,19 @@ final class ToolOutput {
         int responding = 0;
         int notResponding = 0;
         int notChecked = 0;
+        int notInstalled = 0;
         List<Object> list = new ArrayList<>();
         for (ModuleAvailability m : modules) {
             switch (m.reachability()) {
                 case RESPONDING -> responding++;
                 case NOT_RESPONDING -> notResponding++;
                 case NOT_CHECKED -> notChecked++;
+                case NOT_INSTALLED -> notInstalled++;
             }
             Map<String, Object> e = module(m.module());
             e.put("reachability", m.reachability().name());
             link(e, m.link());
+            e.put("gatewayStatus", m.gatewayStatus().map(GatewayStatus::vcdsText).orElse(null));
             e.put("message", m.message());
             e.put("timestamp", ts(m.checkedAt()));
             list.add(e);
@@ -84,12 +88,16 @@ final class ToolOutput {
         counts.put("responding", responding);
         counts.put("notResponding", notResponding);
         counts.put("notChecked", notChecked);
+        counts.put("notInstalled", notInstalled);
         Map<String, Object> out = obj();
         out.put("demo", demo);
         out.put("modules", list);
         out.put("counts", counts);
-        out.put("note", "Without the gateway's installation list, NOT_RESPONDING can mean not installed or not "
-                + "reachable (ignition off). NOT_CHECKED means a limit stopped the check; see its message.");
+        out.put("note", "gatewayStatus is the gateway's installation-list status (as VCDS shows it, e.g. "
+                + "\"Malfunction 0010\" = fault codes stored, \"Cannot be reached 1100\"). NOT_INSTALLED: the gateway "
+                + "doesn't list it, so it wasn't contacted. Without the list (gatewayStatus null everywhere), "
+                + "NOT_RESPONDING can mean not installed or not reachable (ignition off). NOT_CHECKED: a limit stopped "
+                + "the check, or the module has no diagnostic link of its own (04); see its message.");
         return out;
     }
 

@@ -16,8 +16,8 @@ import java.util.List;
  *
  * <pre>{@code
  * try (TestScanServices t = TestScanServices.create()) {
- *     t.connector().kwp("17", () -> FakeDiagnosticService.kwp().onStartSession(...).onReadDtcs(...));
- *     ModuleResult r = t.service().readFaultCodes(Caller.web(), ModuleAddress.parse("17"));
+ *     t.connector().kwp("09", () -> FakeDiagnosticService.kwp().onStartSession(...).onReadDtcs(...));
+ *     ModuleResult r = t.service().readFaultCodes(Caller.web(), ModuleAddress.parse("09"));
  *     assertTrue(t.auditLines().stream().anyMatch(l -> l.contains("\"event\":\"result\"")));
  * }
  * }</pre>

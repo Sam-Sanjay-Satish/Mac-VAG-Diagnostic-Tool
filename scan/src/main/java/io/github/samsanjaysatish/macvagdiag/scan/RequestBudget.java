@@ -48,6 +48,24 @@ final class RequestBudget {
         ctx.charge(module, cost);
     }
 
+    /**
+     * Gives back {@code unused} requests of the reservation just made for {@code module} (the operation sent fewer
+     * than its worst case, e.g. KWP identification reserves {@code 1A 9B} + 5 fallback DIDs but sends 2 when
+     * {@code 1A 9B} answers). Only ever called right after that operation, on the worker thread, so the newest
+     * window entries are its own. Afterwards the per-module count and the window hold what was really sent.
+     */
+    synchronized void refund(ScanContext ctx, ModuleAddress module, int unused) {
+        if (unused <= 0) {
+            return;
+        }
+        int removed = 0;
+        while (removed < unused && !window.isEmpty()) {
+            window.removeLast();
+            removed++;
+        }
+        ctx.charge(module, -Math.min(unused, ctx.requests(module)));
+    }
+
     /** Whether {@code cost} more requests fit into the one-minute window now. */
     synchronized Optional<LimitHit> checkWindow(int cost) {
         long now = time.nanoTime();

@@ -1,3 +1,5 @@
 /gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+# Real-car fixtures (VIN-masked): kept byte for byte (VCDS logs are Windows-1252 with CRLF).
+can-core/src/testFixtures/resources/fixtures/** -text

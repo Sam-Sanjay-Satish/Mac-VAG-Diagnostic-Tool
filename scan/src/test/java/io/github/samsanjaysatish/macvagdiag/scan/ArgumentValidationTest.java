@@ -18,20 +18,45 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ArgumentValidationTest {
 
     @Test
-    @DisplayName("the known set is pinned: 01 02 03 08 09 15 16 17 19 25 44 46 56, in address order")
+    @DisplayName("the known set is pinned to the target car's 16 modules (2026-11-13 capture), in address order")
     void knownSetIsPinned() {
-        assertEquals(List.of("01", "02", "03", "08", "09", "15", "16", "17", "19", "25", "44", "46", "56"),
-                ModuleAddress.known().stream().map(ModuleAddress::hex).toList());
+        assertEquals(List.of("01", "02", "03", "04", "05", "08", "09", "15", "17", "19", "25", "2B", "2E", "44", "56",
+                "77"), ModuleAddress.known().stream().map(ModuleAddress::hex).toList());
         assertEquals("Engine", ModuleAddress.ENGINE.name());
         assertEquals("CAN Gateway", ModuleAddress.GATEWAY.name());
-        // UNCONFIRMED link plan: TP 2.0 logical address = VCDS address; engine/transmission also ISO-TP.
-        assertEquals(List.of(new ModuleLink.Tp20(0x01), new ModuleLink.IsoTp(0x7E0, 0x7E8, Protocol.UDS)),
-                ModuleAddress.ENGINE.links());
-        assertEquals(List.of(new ModuleLink.Tp20(0x17)), ModuleAddress.parse("17").links());
+    }
+
+    @Test
+    @DisplayName("the link table is the capture's: TP 2.0 logical addresses from the gateway list, ISO-TP pairs, 04 none")
+    void linkTableIsPinned() {
+        java.util.Map<String, List<ModuleLink>> expected = new java.util.LinkedHashMap<>();
+        expected.put("01", List.of(new ModuleLink.Tp20(0x01)));
+        expected.put("02", List.of(new ModuleLink.Tp20(0x02)));
+        expected.put("03", List.of(new ModuleLink.Tp20(0x03)));
+        expected.put("04", List.of());
+        expected.put("05", List.of(new ModuleLink.IsoTp(0x732, 0x79C, Protocol.UDS)));
+        expected.put("08", List.of(new ModuleLink.Tp20(0x2C)));
+        expected.put("09", List.of(new ModuleLink.Tp20(0x20)));
+        expected.put("15", List.of(new ModuleLink.IsoTp(0x715, 0x77F, Protocol.UDS)));
+        expected.put("17", List.of(new ModuleLink.IsoTp(0x714, 0x77E, Protocol.UDS)));
+        expected.put("19", List.of(new ModuleLink.Tp20(0x1F)));
+        expected.put("25", List.of(new ModuleLink.IsoTp(0x711, 0x77B, Protocol.UDS)));
+        expected.put("2B", List.of(new ModuleLink.IsoTp(0x731, 0x79B, Protocol.UDS)));
+        expected.put("2E", List.of(new ModuleLink.Tp20(0x54)));
+        expected.put("44", List.of(new ModuleLink.Tp20(0x09)));
+        expected.put("56", List.of(new ModuleLink.Tp20(0x52)));
+        expected.put("77", List.of(new ModuleLink.IsoTp(0x76B, 0x7D5, Protocol.UDS)));
+        java.util.Map<String, List<ModuleLink>> actual = new java.util.LinkedHashMap<>();
+        ModuleAddress.known().forEach(m -> actual.put(m.hex(), m.links()));
+        assertEquals(expected, actual);
+        assertFalse(ModuleAddress.parse("04").hasLink());
+        assertTrue(ModuleAddress.known().stream().flatMap(m -> m.links().stream())
+                .noneMatch(l -> l instanceof ModuleLink.IsoTp i && (i.requestId() == 0x7E0 || i.requestId() == 0x7E1)),
+                "01/02 never used 7E0/7E1 for diagnostics");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"08", "17", "01", "56"})
+    @ValueSource(strings = {"08", "17", "01", "56", "04", "2B", "2E", "77"})
     void twoHexDigitsOfAKnownModuleParse(String text) {
         assertEquals(text, ModuleAddress.parse(text).hex());
     }
@@ -44,7 +69,8 @@ class ArgumentValidationTest {
                     () -> ModuleAddress.parse(text));
             assertTrue(e.getMessage().contains("is not a known module"), e.getMessage());
         }
-        assertEquals(ModuleAddress.parse("46"), ModuleAddress.tryParse("46").orElseThrow());
+        assertEquals(ModuleAddress.parse("2B"), ModuleAddress.tryParse("2b").orElseThrow());
+        assertEquals(ModuleAddress.parse("2E"), ModuleAddress.parse("2e"));
     }
 
     @ParameterizedTest
@@ -59,7 +85,7 @@ class ArgumentValidationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"00", "04", "0F", "18", "20", "7F", "FF"})
+    @ValueSource(strings = {"00", "0F", "16", "18", "20", "46", "7F", "FF"})
     @DisplayName("well-formed but unknown addresses are rejected")
     void unknownIsRejected(String text) {
         InvalidModuleAddressException e = assertThrows(InvalidModuleAddressException.class, () -> ModuleAddress.parse(text));

@@ -8,14 +8,14 @@ import java.util.OptionalInt;
 /**
  * One stored fault code.
  *
- * @param code as shown to people: VAG 5-digit for KWP2000 (e.g. {@code 16684}, UNCONFIRMED), SAE J2012 for UDS
- *     (e.g. {@code P0401})
+ * @param code as shown to people: VAG decimal for KWP2000 ({@code 01314}; 6 digits when there is a P-code, e.g.
+ *     {@code 011174}, as VCDS shows it), SAE J2012 for UDS (e.g. {@code B103E})
  * @param protocol the protocol it was read with
  * @param record the whole record as received (code bytes + status byte), bus-style hex
  * @param status the status byte, 0..255
- * @param statusText readable status; for KWP2000 the decoding is UNCONFIRMED and says so
+ * @param statusText readable status, e.g. {@code 22 (00100010): type 002, Intermittent} (KWP2000, VCDS's words)
  * @param statusFlags names of the set status flags
- * @param obdCode the matching OBD code, if known (none yet: the VAG to P-code mapping waits for the VCDS log)
+ * @param obdCode the matching OBD code, if known (KWP engine codes below {@code 0x4000}: {@code P} + 4 hex digits)
  * @param failureType UDS only: the failure type byte
  * @param freezeFrame the environment data, or why it wasn't read
  */

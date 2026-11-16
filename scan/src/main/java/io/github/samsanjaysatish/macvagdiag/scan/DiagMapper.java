@@ -41,14 +41,30 @@ final class DiagMapper {
         int status = dtc.status().raw();
         return switch (dtc) {
             case KwpDtc k -> new FaultCode(k.displayCode(), Protocol.KWP2000, k.record().hex(), status,
-                    String.format("%02X: symptom %d, %s (KWP status layout UNCONFIRMED)", status,
-                            k.status().symptomCode(), k.status().intermittent() ? "intermittent" : "static"),
+                    kwpStatusText(k),
                     k.status().flagNames(), k.obdCode(), OptionalInt.empty(), freezeFrame);
             case UdsDtc u -> new FaultCode(u.displayCode(), Protocol.UDS, u.record().hex(), status,
-                    String.format("%02X: %s", status, u.status().flagNames().isEmpty() ? "no flags set"
-                            : String.join(", ", u.status().flagNames())),
-                    u.status().flagNames(), Optional.empty(), OptionalInt.of(u.failureType()), freezeFrame);
+                    udsStatusText(u), u.status().flagNames(), Optional.empty(), OptionalInt.of(u.failureType()),
+                    freezeFrame);
         };
+    }
+
+    /** E.g. {@code 61 (01100001): type 001} or {@code 22 (00100010): type 002, Intermittent}, VCDS's words. */
+    static String kwpStatusText(KwpDtc k) {
+        List<String> words = k.status().flagNames();
+        return String.format("%02X (%s): type %s%s", k.status().raw(), k.status().bits(), k.status().faultTypeText(),
+                words.isEmpty() ? "" : ", " + String.join(", ", words));
+    }
+
+    /**
+     * E.g. {@code 08 (00001000): Intermittent - Confirmed - Tested Since Memory Clear}: the byte, its bits and VCDS's
+     * words, as the VCDS log shows them (2026-11-13). The ISO flag names stay in {@link FaultCode#statusFlags()}.
+     */
+    static String udsStatusText(UdsDtc u) {
+        int status = u.status().raw();
+        String bits = String.format("%8s", Integer.toBinaryString(status)).replace(' ', '0');
+        String words = u.status().vcdsText();
+        return String.format("%02X (%s)%s", status, bits, words.isEmpty() ? "" : ": " + words);
     }
 
     static FreezeFrameData freezeFrame(DiagResult<FreezeFrame> r) {

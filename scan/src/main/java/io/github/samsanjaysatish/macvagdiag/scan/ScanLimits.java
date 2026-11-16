@@ -8,9 +8,10 @@ import java.util.Objects;
  * no way to change them per request. The app picks them once at startup ({@link ScanOptions}), and even that is
  * clamped: every value has a hard floor and ceiling below, so configuration can't switch pacing or budgets off.
  *
- * <p><b>Every default is UNCONFIRMED.</b> There is no capture of VCDS's pacing yet, so the defaults are
- * conservative choices from the standards (from memory), explained on each constant. Correct them from the
- * capture (root open question "VCDS pacing and Tester Present timing").
+ * <p><b>Defaults, against the 2026-11-13 capture of VCDS on the target car:</b> the pacing and keep-alive values are
+ * set so that we are never faster than VCDS and never leave a channel or session idle for longer than VCDS did
+ * (the only idle times known to be safe). Retries, back-off and budgets can't be compared (no timeouts or busy
+ * answers happened on the capture) and stay UNCONFIRMED choices, explained on each constant.
  *
  * @param minRequestGap minimum time from the end of one exchange with the car to the start of the next
  * @param testerPresentInterval how long a diagnostic session may be idle before scan sends Tester Present
@@ -33,21 +34,25 @@ public record ScanLimits(Duration minRequestGap, Duration testerPresentInterval,
         int connectAttempts, Duration moduleListCacheTtl) {
 
     /**
-     * UNCONFIRMED: 100 ms. KWP2000's default P3min (ISO 14230, gap between a response and the next request) is
-     * 55 ms; 100 ms leaves margin for the USB adapter and slow modules. VCDS is probably faster.
+     * 100 ms, at or above VCDS's pace on the capture: VCDS left at least 22 ms (TP 2.0, median 41 ms) and 58 ms
+     * (UDS, median 160 ms) between a response and its next request. Slower than VCDS is fine; faster isn't proven.
      */
     public static final Duration DEFAULT_MIN_REQUEST_GAP = Duration.ofMillis(100);
     /**
-     * UNCONFIRMED: 2 s. A UDS non-default session ends after S3server = 5 s without a request, and KWP's default
-     * P3max is 5 s; ISO 14229-2 has the tester send Tester Present at about 2 s. 2 s gives 2.5x margin.
+     * 1.5 s. A UDS session ({@code 10 03}) ends after S3server = 5 s without a request. VCDS sent Tester Present
+     * 0.25–1.6 s apart in idle gaps on the capture (as {@code 3E 80} on the functional ID {@code 700}, which we
+     * don't use); 1.5 s stays inside what it did. On TP 2.0 we also send KWP {@code 3E} after this interval;
+     * VCDS never did (its {@code A3} keep-alive was enough), so dropping it there is an open question.
+     * UNCONFIRMED: how long the modules really wait.
      */
-    public static final Duration DEFAULT_TESTER_PRESENT_INTERVAL = Duration.ofSeconds(2);
+    public static final Duration DEFAULT_TESTER_PRESENT_INTERVAL = Duration.ofMillis(1500);
     /**
-     * UNCONFIRMED: 1 s. How long a TP 2.0 channel stays up without traffic isn't known; from memory VCDS sends
-     * {@code A3} about once a second when idle. More often than needed is harmless (it carries no request).
+     * 500 ms. VCDS sent the TP 2.0 keep-alive {@code A3} after 0.5–0.6 s idle (median 541 ms, 97 samples) and never
+     * left a channel idle longer, so how long a module keeps an idle channel open is unknown (UNCONFIRMED); 500 ms
+     * stays just under what VCDS did. More often than needed is harmless (it carries no request).
      */
-    public static final Duration DEFAULT_CHANNEL_KEEP_ALIVE_INTERVAL = Duration.ofSeconds(1);
-    /** UNCONFIRMED: 2 retries, so at most 3 tries of one operation. */
+    public static final Duration DEFAULT_CHANNEL_KEEP_ALIVE_INTERVAL = Duration.ofMillis(500);
+    /** UNCONFIRMED: 2 retries, so at most 3 tries of one operation (no timeout or busy answer on the capture). */
     public static final int DEFAULT_MAX_RETRIES = 2;
     /** UNCONFIRMED: 500 ms, then 1 s: a busy module gets time to finish what it is doing. */
     public static final Duration DEFAULT_INITIAL_BACKOFF = Duration.ofMillis(500);
@@ -58,16 +63,22 @@ public record ScanLimits(Duration minRequestGap, Duration testerPresentInterval,
     /** UNCONFIRMED: 5 s; long enough to stop a caller hammering an absent module, short enough to retry soon. */
     public static final Duration DEFAULT_NOT_RESPONDING_BACKOFF = Duration.ofSeconds(5);
     /**
-     * UNCONFIRMED: 60. One module costs about 1 session + 2..6 identification + 1 DTC read + 2 per UDS freeze frame
-     * + Tester Present + retries; 60 covers about 20 UDS faults with freeze frames.
+     * 60. Our request sets are much shorter than VCDS's (it sent 6–94 per module, mostly identification DIDs): a
+     * module costs 1 session + up to 6 identification + 1 DTC read + 1 (KWP) or 2 (UDS) per freeze frame + Tester
+     * Present + retries, and the gateway 2 more for the installation list. The engine on the capture (12 codes)
+     * needs about 21. UNCONFIRMED as a limit; it only stops runaways.
      */
     public static final int DEFAULT_MAX_REQUESTS_PER_MODULE_PER_SCAN = 60;
     /**
-     * UNCONFIRMED: 400. Above one full Auto-Scan of the known list (roughly 100-250 requests expected), so a scan
-     * isn't cut short, but it stops a runaway caller (e.g. an AI looping over read_fault_codes).
+     * 400. VCDS's busiest minute on the capture had 168 requests; one of our Auto-Scans of the target car sends
+     * fewer than that in total. It stops a runaway caller (e.g. an AI looping over read_fault_codes).
      */
     public static final int DEFAULT_MAX_REQUESTS_PER_MINUTE = 400;
-    /** UNCONFIRMED: 2 setups per link, so one lost frame doesn't make a module look absent. */
+    /**
+     * 2 channel setups per link, so one lost frame doesn't make a module look absent. VCDS tries 10, 77 ms apart,
+     * and waits about 15 s on each module that never answers (2E, 56 on the target car); the modules that do
+     * answer did so to the first setup within 14 ms, so more attempts would only make unreachable modules slower.
+     */
     public static final int DEFAULT_CONNECT_ATTEMPTS = 2;
     /** 60 s: module presence doesn't change while the car is on. */
     public static final Duration DEFAULT_MODULE_LIST_CACHE_TTL = Duration.ofSeconds(60);

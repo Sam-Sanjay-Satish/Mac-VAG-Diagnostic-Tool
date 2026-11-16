@@ -24,3 +24,6 @@ bin/
 # Raw car data (captures, VCDS logs) contain the VIN.
 # Keep unredacted files here; only commit sanitized fixtures.
 local/
+
+# Claude Code agent worktrees
+.claude/worktrees/

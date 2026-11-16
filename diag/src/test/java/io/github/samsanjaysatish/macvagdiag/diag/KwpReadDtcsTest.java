@@ -12,21 +12,21 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** KWP {@code 18 02} → {@code 58 [count] ([hi] [lo] [status])...}, hand-written bytes. */
+/** KWP {@code 18 02 FF 00} → {@code 58 [count] ([hi] [lo] [status])...}, hand-written bytes. */
 class KwpReadDtcsTest {
 
     private final FakeTimeSource time = new FakeTimeSource();
 
     private DtcList read(String response) throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", response);
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", response);
         DiagResult<DtcList> r = new KwpDiagnosticService(ch, time).readDtcs();
-        assertEquals(List.of("18 02"), ch.requestsHex());
+        assertEquals(List.of("18 02 FF 00"), ch.requestsHex());
         assertTrue(r.isSuccess(), r.message());
         return r.valueIfSuccess().orElseThrow();
     }
 
     @Test
-    @DisplayName("18 02 -> 58 00 with zero DTCs")
+    @DisplayName("18 02 FF 00 -> 58 00 with zero DTCs")
     void zero() throws InterruptedException {
         DtcList l = read("58 00");
         assertEquals(List.of(), l.dtcs());
@@ -36,7 +36,7 @@ class KwpReadDtcsTest {
     }
 
     @Test
-    @DisplayName("18 02 -> 58 01 41 2C A3 with one DTC: 16684, status A3 kept raw")
+    @DisplayName("18 02 FF 00 -> 58 01 41 2C A3 with one DTC: 16684, status A3 kept raw")
     void one() throws InterruptedException {
         DtcList l = read("58 01 41 2C A3");
         assertEquals(List.of(new KwpDtc(0x412C, 0xA3)), l.dtcs());
@@ -48,7 +48,7 @@ class KwpReadDtcsTest {
     }
 
     @Test
-    @DisplayName("18 02 -> 58 03 with three DTCs, in order")
+    @DisplayName("18 02 FF 00 -> 58 03 with three DTCs, in order")
     void many() throws InterruptedException {
         DtcList l = read("58 03 41 2C A3 46 6E 23 00 01 00");
         assertEquals(List.of(new KwpDtc(0x412C, 0xA3), new KwpDtc(0x466E, 0x23), new KwpDtc(0x0001, 0x00)), l.dtcs());
@@ -83,7 +83,7 @@ class KwpReadDtcsTest {
     @DisplayName("58 alone (no count) and a 59 answer are malformed, raw kept")
     void malformed() throws InterruptedException {
         for (String bad : new String[] {"58", "59 02 FF"}) {
-            FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", bad);
+            FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", bad);
             DiagResult<DtcList> r = new KwpDiagnosticService(ch, time).readDtcs();
             DiagResult.Malformed<?> m = assertInstanceOf(DiagResult.Malformed.class, r);
             assertEquals(RawBytes.ofHex(bad), m.response());
@@ -93,9 +93,9 @@ class KwpReadDtcsTest {
     @Test
     @DisplayName("a VagCodeMapping, when one exists, fills obdCode (test mapping, not real data)")
     void mappingHook() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", "58 02 41 2C A3 00 01 00");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", "58 02 41 2C A3 00 01 00");
         VagCodeMapping testMapping = code -> code == 0x412C ? Optional.of("TEST-ONLY") : Optional.empty();
-        DiagResult<DtcList> r = new KwpDiagnosticService(ch, time, DiagTimings.DEFAULTS, testMapping).readDtcs();
+        DiagResult<DtcList> r = new KwpDiagnosticService(ch, time, DiagTimings.DEFAULTS, new KwpOptions(KwpOptions.DtcRequest.STATUS_02, testMapping)).readDtcs();
         List<Dtc> dtcs = r.valueIfSuccess().orElseThrow().dtcs();
         assertEquals(Optional.of("TEST-ONLY"), ((KwpDtc) dtcs.get(0)).obdCode());
         assertEquals(Optional.empty(), ((KwpDtc) dtcs.get(1)).obdCode());

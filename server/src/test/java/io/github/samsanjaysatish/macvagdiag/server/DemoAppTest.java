@@ -128,29 +128,33 @@ class DemoAppTest {
             codes.put(m.get("address").asString(), c.toString());
         }
         Map<String, String> expected = new LinkedHashMap<>();
-        for (String ok : List.of("02", "08", "09", "15", "17")) {
+        for (String ok : List.of("02", "05", "08", "09", "15", "25", "2B", "44", "77")) {
             expected.put(ok, "OK");
         }
-        expected.put("01", "FAULTS");
-        expected.put("03", "FAULTS");
-        expected.put("19", "FAULTS");
-        for (String off : List.of("16", "25", "44", "46", "56")) {
+        for (String faults : List.of("01", "03", "17", "19")) {
+            expected.put(faults, "FAULTS");
+        }
+        expected.put("04", "GATEWAY_STATUS_ONLY");
+        for (String off : List.of("2E", "56")) {
             expected.put(off, "NOT_RESPONDING");
         }
         assertEquals(new java.util.TreeMap<>(expected), new java.util.TreeMap<>(statuses));
-        assertEquals("P0401-00,P2463-00", codes.get("01"));
+        assertEquals("001025,001025,009315", codes.get("01"));
+        assertEquals("B1A10-12,U0115-00", codes.get("17"));
         assertEquals("01314", codes.get("03"));
         assertEquals("01044", codes.get("19"));
 
         JsonNode engine = job.get("modules").get(0);
-        assertEquals("ISOTP", engine.get("link").get("type").asString());
+        assertEquals("TP20", engine.get("link").get("type").asString());
+        assertEquals("Malfunction 0010", engine.get("gatewayStatus").asString());
         assertEquals("READ", engine.get("faults").get(0).get("freezeFrame").get("availability").asString());
-        assertEquals("19 04 04 01 00 FF",
+        assertEquals("12 00 04 04 01",
                 engine.get("faults").get(0).get("freezeFrame").get("records").get(0).get("id").asString());
 
         JsonNode result = job.get("result");
         assertEquals(DEMO_VIN, result.get("vin").asString());
-        assertEquals(4, result.get("faultCodes").asInt());
+        assertEquals(7, result.get("faultCodes").asInt());
+        assertTrue(result.get("fromInstallationList").asBoolean());
         assertTrue(result.get("demo").asBoolean());
 
         HttpResponse<String> report = send(request("/api/scans/" + id + "/report.txt?maskVin=true").GET());
@@ -163,7 +167,7 @@ class DemoAppTest {
         // One module through the API, and the module list.
         JsonNode gateway = getJson("/api/modules/19/faults");
         assertEquals("01044", gateway.get("faults").get(0).get("code").asString());
-        assertTrue(gateway.get("faults").get(0).get("statusText").asString().contains("intermittent"));
+        assertTrue(gateway.get("faults").get(0).get("statusText").asString().contains("Intermittent"));
         JsonNode modules = getJson("/api/modules");
         assertEquals("RESPONDING", modules.get("modules").get(0).get("reachability").asString());
 

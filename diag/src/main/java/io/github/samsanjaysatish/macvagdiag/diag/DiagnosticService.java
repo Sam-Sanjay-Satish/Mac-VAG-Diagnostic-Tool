@@ -24,10 +24,20 @@ public interface DiagnosticService {
         return forChannel(channel, time, DiagTimings.DEFAULTS);
     }
 
-    /** The service for {@code channel}'s protocol. */
+    /** The service for {@code channel}'s protocol, with {@link KwpOptions#DEFAULT} for KWP2000. */
     static DiagnosticService forChannel(DiagnosticChannel channel, TimeSource time, DiagTimings timings) {
+        return forChannel(channel, time, timings, KwpOptions.DEFAULT);
+    }
+
+    /**
+     * The service for {@code channel}'s protocol.
+     *
+     * @param kwpOptions used if the channel is KWP2000 ({@link KwpOptions#ENGINE} for 01 Engine), ignored for UDS
+     */
+    static DiagnosticService forChannel(DiagnosticChannel channel, TimeSource time, DiagTimings timings,
+            KwpOptions kwpOptions) {
         return switch (channel.protocol()) {
-            case KWP2000 -> new KwpDiagnosticService(channel, time, timings, VagCodeMapping.NONE);
+            case KWP2000 -> new KwpDiagnosticService(channel, time, timings, kwpOptions);
             case UDS -> new UdsDiagnosticService(channel, time, timings);
         };
     }
@@ -58,7 +68,19 @@ public interface DiagnosticService {
     /**
      * The freeze frame / environment data stored with {@code dtc}.
      *
+     * <p><b>KWP2000:</b> one {@code 12 00 04 [hi] [lo]} per call. A module that stores the same code several times
+     * returns the next stored record for each repeat of the request, so call this once per entry of the DTC list,
+     * in list order, on the channel the list was read on (the 2026-11-13 capture: engine codes {@code 04 01},
+     * {@code 05 44} twice and {@code 00 87} three times). Nothing is cached here.
+     *
      * @throws IllegalArgumentException if {@code dtc} is from the other protocol
      */
     DiagResult<FreezeFrame> readFreezeFrame(Dtc dtc) throws InterruptedException;
+
+    /**
+     * The gateway's installation list, {@code 22 04 A1} (one request). Only the gateway (19, TP 2.0 logical
+     * address {@code 1F} on the target car) has it; other modules answer negatively ({@code 7F 22 31}), which is
+     * returned as {@link DiagResult.Negative}.
+     */
+    DiagResult<InstallationList> readInstallationList() throws InterruptedException;
 }

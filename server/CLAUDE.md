@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** v1 built and tested without hardware (93 tests, `./gradlew :server:build` green; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: a `ReplayAdapter` demo once a VIN-masked capture exists (the raw capture exists since 2026-11-13; it needs `tools`' fixture sanitizer first), and the manual hardware run. **Package:** `io.github.samsanjaysatish.macvagdiag.server`
+**Status:** v1 built and tested without hardware (95 tests, `./gradlew :server:build` green; 2026-11-16: gateway status and the installation list added to the JSON, sample data and report snapshots moved to the car's module table; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: a `ReplayAdapter` demo once a VIN-masked capture exists (the sanitizer exists since 2026-11-16; masked copies are in `local/sanitized/`, not yet committed as fixtures), and the manual hardware run. **Package:** `io.github.samsanjaysatish.macvagdiag.server`
 **Depends on:** `scan` + Spring Boot 4.1.2 (`spring-boot-starter-webmvc`; approved by the user 2026-10-22; BOM via `platform(libs.spring.boot.bom)`, no dependency-management plugin). Tests: `spring-boot-starter-test`, `spring-boot-starter-webmvc-test`, scan's test fixtures. **Used by:** nobody; this is the app.
 
 ## Purpose
@@ -43,10 +43,10 @@ Then open http://localhost:8080. Other flags go in `--args` the same way (`--ser
 | Endpoint | Returns |
 |---|---|
 | `GET /api/status` | `adapter`, `adapterConnected`, `adapterDetail`, `ignition`/`engine` `{state, reason}`, `demo`, `checkedAt`. 200 also when not connected. |
-| `GET /api/modules` | `{modules: [{address, name, reachability, link, message, checkedAt}]}` |
-| `GET /api/modules/{address}/faults` | one module: `status`, `link {type, protocol, description}`, `identification` (with `raw [{id, hex, text}]`), `faults [{code, displayCode, record, status, statusHex, statusText, statusFlags, failureType, freezeFrame {availability, message, records, fields, responses, notes}}]`, `notes`, `limitHit`, `requests`, times |
+| `GET /api/modules` | `{modules: [{address, name, reachability (RESPONDING/NOT_RESPONDING/NOT_CHECKED/NOT_INSTALLED), link, gatewayStatus (e.g. "Malfunction 0010", or null), message, checkedAt}]}` |
+| `GET /api/modules/{address}/faults` | one module: `status` (incl. `GATEWAY_STATUS_ONLY` for 04), `statusText`, `link {type, protocol, description}`, `gatewayStatus` (Auto-Scan results only), `identification` (with `raw [{id, hex, text}]`), `faults [{code, displayCode, record, status, statusHex, statusText, statusFlags, failureType, freezeFrame {availability, message, records, fields, responses, notes}}]`, `notes`, `limitHit`, `requests`, times |
 | `POST /api/scans` | 202 `{id, href, reportHref}` + `Location`. Body must be empty or `{}`; anything else 400. |
-| `GET /api/scans/{id}` | `state` (`RUNNING`/`FINISHED`/`CANCELLED`/`FAILED`), `totalModules`, `completedModules`, `currentModule`, `lastMessage`, `events`, `modules` (finished so far), `result` (summary with VIN) or `failure` |
+| `GET /api/scans/{id}` | `state` (`RUNNING`/`FINISHED`/`CANCELLED`/`FAILED`), `totalModules`, `completedModules`, `currentModule`, `lastMessage`, `events`, `modules` (finished so far), `result` (summary with VIN, `fromInstallationList`, `installationList [{address, name, kind, statusHex, status}]`) or `failure` |
 | `GET /api/scans/{id}/report.txt[?maskVin=true]` | `ScanReport.text`, `text/plain;charset=UTF-8` attachment `macvagdiag-<id>[-demo][-vin-masked].txt` |
 
 Nothing else is mapped (`EndpointSetTest`): no raw-request, clear, write or vehicle-info endpoint.
@@ -83,7 +83,7 @@ Status bar (adapter, demo, ignition/engine with reasons), "Run Auto-Scan" with l
 - [x] `ScanControllerTest` (`@WebMvcTest`, `FakeScanService` via `SwappableScanService`): JSON shapes of every endpoint; 503, 429 + `Retry-After` (limit and back-off), 409, 400 (10 malformed/unknown addresses, service not called), 404, 200 `NOT_RESPONDING`, failed scan, POST with parameters.
 - [x] `SecurityTest`: 12 wrong Hosts, no Host, two Hosts → 403 with the service not called; allowed hosts; 8 cross-origin Origins → 403 with no CORS headers (GET and POST); preflight gets no CORS headers; same-origin POST works without CORS headers; form / multipart / text / no content type → 415; security headers; `server.address=127.0.0.1`; the loopback customizer refuses `0.0.0.0`, `::` and a LAN address.
 - [x] `ReportExportTest`: report download vs `src/test/resources/snapshots/sample-report*.txt` (plain and VIN-masked), headers.
-- [x] `DemoAppTest`: full app, demo mode, real Tomcat on a random port at 127.0.0.1, `FakeTimeSource.autoAdvancing()` (instant). Auto-Scan through HTTP: statuses of all 13 modules, codes P0401-00/P2463-00 (01), 01314 (03), 01044 (19), freeze frame, VIN, masked report with DEMO banner, audit lines `demo:true` from `web`, no full VIN in the log. Connector bound to 127.0.0.1. Raw-socket requests: wrong Host → 403 on `/api/status`, `/`, `/app.js`, `/mcp`, unknown paths, `/error`; cross-origin and form POST to `/mcp` rejected.
+- [x] `DemoAppTest`: full app, demo mode, real Tomcat on a random port at 127.0.0.1, `FakeTimeSource.autoAdvancing()` (instant). Auto-Scan through HTTP: statuses of all 16 modules (04 gateway status only, 2E/56 not reachable), codes 001025 ×2 / 009315 (01), 01314 (03), B1A10-12 / U0115-00 (17), 01044 (19), gateway status, KWP freeze frame, installation list, VIN, masked report with DEMO banner, audit lines `demo:true` from `web`, no full VIN in the log. Connector bound to 127.0.0.1. Raw-socket requests: wrong Host → 403 on `/api/status`, `/`, `/app.js`, `/mcp`, unknown paths, `/error`; cross-origin and form POST to `/mcp` rejected.
 - [x] `EndpointSetTest`: the mapped endpoints are exactly the six above (plus Boot's `/error`); `ScanController` is the only controller.
 - [x] `NoAdapterAppTest`: real wiring with no ports: starts, status `DISCONNECTED`, car endpoints 503.
 - [x] `AdapterWaitingScanServiceTest`: refuse until found, non-CANables ignored, bind once after the re-discovery interval (fake clock), tool calls audited before and after, close.

@@ -157,6 +157,7 @@ const STATES = {
   ERROR: { cls: "warn", label: "Error" },
   INCOMPLETE: { cls: "warn", label: "Incomplete" },
   SKIPPED: { cls: "off", label: "Skipped" },
+  GATEWAY_STATUS_ONLY: { cls: "off", label: "Gateway status" },
 };
 
 function renderModules(modules) {
@@ -166,7 +167,8 @@ function renderModules(modules) {
   unreachable.replaceChildren();
   for (const m of modules) {
     if (m.status === "NOT_RESPONDING") {
-      unreachable.append(el("li", { title: m.notes.join("; ") }, m.address + " " + m.name));
+      unreachable.append(el("li", { title: m.notes.join("; ") },
+        m.address + " " + m.name + (m.gatewayStatus ? " (gateway: " + m.gatewayStatus + ")" : "")));
     } else {
       results.append(moduleCard(m));
     }

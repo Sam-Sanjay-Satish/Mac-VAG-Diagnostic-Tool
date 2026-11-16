@@ -64,49 +64,51 @@ class ToolHandlersTest {
         assertEquals("01", engine.get("address"));
         assertEquals("Engine", engine.get("name"));
         assertEquals("RESPONDING", engine.get("reachability"));
-        assertEquals("UDS", engine.get("protocol"));
-        assertEquals("UDS over ISO-TP (7E0/7E8)", engine.get("link"));
+        assertEquals("KWP2000", engine.get("protocol"));
+        assertEquals("KWP2000 over TP 2.0 (logical address 01)", engine.get("link"));
+        assertEquals("Malfunction 0010", engine.get("gatewayStatus"));
         assertEquals(AT, engine.get("timestamp"));
-        Map<String, Object> hvac = modules.stream().map(ToolTesting::map).filter(m -> m.get("address").equals("08"))
+        Map<String, Object> media = modules.stream().map(ToolTesting::map).filter(m -> m.get("address").equals("2E"))
                 .findFirst().orElseThrow();
-        assertEquals("NOT_RESPONDING", hvac.get("reachability"));
-        assertNull(hvac.get("protocol"));
+        assertEquals("NOT_RESPONDING", media.get("reachability"));
+        assertEquals("Cannot be reached 1100", media.get("gatewayStatus"));
+        assertNull(media.get("protocol"));
         Map<String, Object> counts = map(out.get("counts"));
-        assertEquals(7, counts.get("responding"));
-        assertEquals(6, counts.get("notResponding"));
-        assertEquals(0, counts.get("notChecked"));
+        assertEquals(13, counts.get("responding"));
+        assertEquals(2, counts.get("notResponding"));
+        assertEquals(1, counts.get("notChecked"), "04: gateway status only");
+        assertEquals(0, counts.get("notInstalled"));
     }
 
     @Test
     void readFaultCodesUdsKeepsRawIdsStatusByteAndFreezeFrame() {
-        Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "01")));
+        Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "17")));
 
-        assertEquals(Map.of("address", "01", "name", "Engine"), out.get("module"));
+        assertEquals(Map.of("address", "17", "name", "Instruments"), out.get("module"));
         assertEquals("FAULTS", out.get("status"));
         assertEquals(1, out.get("faultCount"));
         assertEquals(AT, out.get("startedAt"));
         Map<String, Object> fault = map(list(out.get("faults")).getFirst());
-        assertEquals("P0401-00", fault.get("id"));
-        assertEquals("P0401", fault.get("code"));
+        assertEquals("U0115-00", fault.get("id"));
+        assertEquals("U0115", fault.get("code"));
         assertEquals("UDS", fault.get("protocol"));
-        assertEquals("04 01 00 2F", fault.get("record"));
+        assertEquals("C1 15 00 08", fault.get("record"));
         Map<String, Object> status = map(fault.get("status"));
         assertEquals("status byte", status.get("id"));
-        assertEquals("2F", status.get("raw"));
-        assertEquals(0x2F, status.get("value"));
+        assertEquals("08", status.get("raw"));
+        assertEquals(0x08, status.get("value"));
         assertNull(status.get("unit"));
-        assertEquals(List.of("testFailed", "testFailedThisOperationCycle", "pendingDTC", "confirmedDTC",
-                "testFailedSinceLastClear"), fault.get("statusFlags"));
+        assertEquals(List.of("confirmedDTC"), fault.get("statusFlags"));
         assertEquals("00", map(fault.get("failureType")).get("raw"));
         Map<String, Object> ff = map(fault.get("freezeFrame"));
         assertEquals("READ", ff.get("availability"));
         Map<String, Object> record = map(list(ff.get("records")).getFirst());
-        assertEquals("19 04 04 01 00 FF", record.get("id"));
-        assertEquals("01 01 F4 0D 2A", record.get("raw"));
+        assertEquals("19 06 C1 15 00 FF", record.get("id"));
+        assertEquals("01 05 02", record.get("raw"));
         assertNull(record.get("text"));
         assertNull(record.get("unit"));
-        assertEquals(List.of("59 04 04 01 00 2F 01 01 F4 0D 2A"), ff.get("responses"));
-        assertEquals(List.of(new FakeScanService.Call("readFaultCodes", "mcp:read_fault_codes", "01")),
+        assertEquals(List.of("59 06 C1 15 00 08 01 05 02"), ff.get("responses"));
+        assertEquals(List.of(new FakeScanService.Call("readFaultCodes", "mcp:read_fault_codes", "17")),
                 scan.calls().stream().filter(c -> !c.method().equals("recordToolCall")).toList());
     }
 
@@ -124,7 +126,7 @@ class ToolHandlersTest {
 
     @Test
     void readFaultCodesOnModuleThatDoesNotAnswerIsDataNotAnError() {
-        Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "08")));
+        Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "2E")));
         assertEquals("NOT_RESPONDING", out.get("status"));
         assertEquals(List.of(), out.get("faults"));
         assertNull(out.get("link"));
@@ -153,7 +155,7 @@ class ToolHandlersTest {
         Map<String, Object> engine = map(list(out.get("modules")).getFirst());
         Map<String, Object> ident = map(engine.get("identification"));
         Map<String, Object> raw = map(list(ident.get("raw")).getFirst());
-        assertEquals("22 F1 90", raw.get("id"));
+        assertEquals("1A 90", raw.get("id"));
         assertEquals("(masked: contains the VIN)", raw.get("raw"));
         Map<String, Object> partNumber = list(ident.get("values")).stream().map(ToolTesting::map)
                 .filter(v -> v.get("id").equals("partNumber")).findFirst().orElseThrow();

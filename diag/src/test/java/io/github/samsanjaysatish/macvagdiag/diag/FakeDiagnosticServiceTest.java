@@ -58,4 +58,18 @@ class FakeDiagnosticServiceTest {
         assertTrue(f.readFreezeFrame(d) instanceof DiagResult.NotAvailable<FreezeFrame>);
         assertEquals(FakeDiagnosticService.freezeFrame(d).dtc(), d);
     }
+
+    @Test
+    @DisplayName("the installation list is scripted like the rest, and counts for allScriptUsed")
+    void installationList() {
+        InstallationList.Entry engine = new InstallationList.Entry(0x01, 0x01, 0x05, 0x10);
+        FakeDiagnosticService f = FakeDiagnosticService.kwp()
+                .onReadInstallationList(FakeDiagnosticService.ok(FakeDiagnosticService.installationList(engine)));
+        assertFalse(f.allScriptUsed());
+        assertEquals(List.of(engine), f.readInstallationList().valueIfSuccess().orElseThrow().entries());
+        assertTrue(f.allScriptUsed());
+        assertThrows(IllegalStateException.class, f::readInstallationList);
+        assertEquals(new FakeDiagnosticService.Call(FakeDiagnosticService.Operation.READ_INSTALLATION_LIST, null),
+                f.calls().getFirst());
+    }
 }

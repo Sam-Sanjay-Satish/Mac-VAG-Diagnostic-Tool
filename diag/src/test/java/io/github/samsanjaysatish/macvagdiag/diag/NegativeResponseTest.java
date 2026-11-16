@@ -37,7 +37,7 @@ class NegativeResponseTest {
 
     // ---- plain NRCs ----
 
-    @ParameterizedTest(name = "UDS 19 02 FF -> 7F 19 {0}: {1}")
+    @ParameterizedTest(name = "UDS 19 02 AE -> 7F 19 {0}: {1}")
     @CsvSource({
             "11, SERVICE_NOT_SUPPORTED, serviceNotSupported",
             "12, SUB_FUNCTION_NOT_SUPPORTED, subFunctionNotSupported",
@@ -46,7 +46,7 @@ class NegativeResponseTest {
     })
     @DisplayName("UDS: 7F 19 11 / 12 / 22 / 31 give a typed Negative with a readable message, no retry")
     void udsNegatives(String nrcHex, Nrc nrc, String isoName) throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 " + nrcHex);
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 " + nrcHex);
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, r);
         assertEquals(0x19, n.response().serviceId());
@@ -58,7 +58,7 @@ class NegativeResponseTest {
         assertEquals(List.of(Call.Kind.REQUEST), kinds(ch));
     }
 
-    @ParameterizedTest(name = "KWP 18 02 -> 7F 18 {0}: {1}")
+    @ParameterizedTest(name = "KWP 18 02 FF 00 -> 7F 18 {0}: {1}")
     @CsvSource({
             "11, SERVICE_NOT_SUPPORTED",
             "12, SUB_FUNCTION_NOT_SUPPORTED",
@@ -67,7 +67,7 @@ class NegativeResponseTest {
     })
     @DisplayName("KWP: 7F 18 11 / 12 / 22 / 31 give a typed Negative, no retry")
     void kwpNegatives(String nrcHex, Nrc nrc) throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", "7F 18 " + nrcHex);
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", "7F 18 " + nrcHex);
         DiagResult<DtcList> r = new KwpDiagnosticService(ch, time).readDtcs();
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, r);
         assertEquals(Optional.of(nrc), n.response().nrc());
@@ -78,7 +78,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("unknown NRC 7F 19 99 is kept as its raw code with an 'unknown' message")
     void unknownNrc() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 99");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 99");
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, new UdsDiagnosticService(ch, time).readDtcs());
         assertEquals(0x99, n.response().code());
         assertEquals(Optional.empty(), n.response().nrc());
@@ -88,7 +88,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("extra bytes after the NRC (7F 19 31 00 AA) are kept in the raw negative response")
     void extraBytesKept() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 31 00 AA");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 31 00 AA");
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, new UdsDiagnosticService(ch, time).readDtcs());
         assertEquals(RawBytes.ofHex("7F 19 31 00 AA"), n.response().raw());
     }
@@ -98,7 +98,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("7F 19 21 busy gives a retryable Busy and is NOT retried here")
     void busy() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 21");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 21");
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         DiagResult.Busy<?> b = assertInstanceOf(DiagResult.Busy.class, r);
         assertEquals(Optional.of(Nrc.BUSY_REPEAT_REQUEST), b.response().nrc());
@@ -110,32 +110,32 @@ class NegativeResponseTest {
     @Test
     @DisplayName("KWP 7F 18 21 busy is Busy and retryable too")
     void kwpBusy() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", "7F 18 21");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", "7F 18 21");
         DiagResult<DtcList> r = new KwpDiagnosticService(ch, time).readDtcs();
         assertInstanceOf(DiagResult.Busy.class, r);
         assertTrue(r.retryable());
-        assertEquals(List.of("18 02"), ch.requestsHex());
+        assertEquals(List.of("18 02 FF 00"), ch.requestsHex());
     }
 
     // ---- 78 pending ----
 
     @Test
-    @DisplayName("19 02 FF -> 7F 19 78 then 59 02 FF 04 01 00 2F: waits with awaitResponse and the pending timeout, no resend")
+    @DisplayName("19 02 AE -> 7F 19 78 then 59 02 FF 04 01 00 2F: waits with awaitResponse and the pending timeout, no resend")
     void pendingThenAnswer() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 78", "59 02 FF 04 01 00 2F");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 78", "59 02 FF 04 01 00 2F");
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         assertTrue(r.isSuccess(), r.message());
         assertEquals(List.of(new UdsDtc(0x040100, 0x2F)), r.valueIfSuccess().orElseThrow().dtcs());
         assertEquals(List.of(
-                new Call(Call.Kind.REQUEST, Hex.parse("19 02 FF"), DiagTimings.DEFAULT_REQUEST_TIMEOUT),
+                new Call(Call.Kind.REQUEST, Hex.parse("19 02 AE"), DiagTimings.DEFAULT_REQUEST_TIMEOUT),
                 new Call(Call.Kind.AWAIT, new byte[0], DiagTimings.RESPONSE_PENDING_TIMEOUT)), ch.calls());
         assertTrue(ch.allScriptUsed());
     }
 
     @Test
-    @DisplayName("KWP 18 02 -> 7F 18 78, 7F 18 78, 58 01 41 2C A3: two waits, one request")
+    @DisplayName("KWP 18 02 FF 00 -> 7F 18 78, 7F 18 78, 58 01 41 2C A3: two waits, one request")
     void kwpPendingTwice() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02", "7F 18 78", "7F 18 78", "58 01 41 2C A3");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("18 02 FF 00", "7F 18 78", "7F 18 78", "58 01 41 2C A3");
         DiagResult<DtcList> r = new KwpDiagnosticService(ch, time).readDtcs();
         assertTrue(r.isSuccess(), r.message());
         assertEquals(List.of(Call.Kind.REQUEST, Call.Kind.AWAIT, Call.Kind.AWAIT), kinds(ch));
@@ -144,7 +144,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("7F 19 78 then 7F 19 31: the final negative answer is returned")
     void pendingThenNegative() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 78", "7F 19 31");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 78", "7F 19 31");
         DiagResult.Negative<?> n = assertInstanceOf(DiagResult.Negative.class, new UdsDiagnosticService(ch, time).readDtcs());
         assertEquals(0x31, n.response().code());
     }
@@ -154,7 +154,7 @@ class NegativeResponseTest {
     void pendingUpToCap() throws InterruptedException {
         DiagTimings timings = new DiagTimings(Duration.ofSeconds(1), Duration.ofSeconds(5), 3, Duration.ofSeconds(30));
         FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 02 FF", "7F 19 78", "7F 19 78", "7F 19 78", "59 02 FF");
+                .on("19 02 AE", "7F 19 78", "7F 19 78", "7F 19 78", "59 02 FF");
         assertTrue(new UdsDiagnosticService(ch, time, timings).readDtcs().isSuccess());
         assertEquals(List.of(Call.Kind.REQUEST, Call.Kind.AWAIT, Call.Kind.AWAIT, Call.Kind.AWAIT), kinds(ch));
     }
@@ -164,7 +164,7 @@ class NegativeResponseTest {
     void pendingPastCountCap() throws InterruptedException {
         DiagTimings timings = new DiagTimings(Duration.ofSeconds(1), Duration.ofSeconds(5), 3, Duration.ofSeconds(30));
         FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                .on("19 02 FF", "7F 19 78", "7F 19 78", "7F 19 78", "7F 19 78", "59 02 FF");
+                .on("19 02 AE", "7F 19 78", "7F 19 78", "7F 19 78", "7F 19 78", "59 02 FF");
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time, timings).readDtcs();
         DiagResult.PendingLimitExceeded<?> p = assertInstanceOf(DiagResult.PendingLimitExceeded.class, r);
         assertEquals(4, p.pendingResponses());
@@ -178,7 +178,7 @@ class NegativeResponseTest {
     void pendingForeverDefaultCap() throws InterruptedException {
         String[] answers = new String[DiagTimings.MAX_RESPONSE_PENDING + 50];
         java.util.Arrays.fill(answers, "7F 19 78");
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", answers);
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", answers);
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         assertInstanceOf(DiagResult.PendingLimitExceeded.class, r);
         assertEquals(1, ch.requestsHex().size());
@@ -192,7 +192,7 @@ class NegativeResponseTest {
         DiagTimings timings = new DiagTimings(Duration.ofSeconds(1), Duration.ofSeconds(5), 100, Duration.ofSeconds(10));
         String[] answers = new String[20];
         java.util.Arrays.fill(answers, "7F 19 78");
-        FakeDiagnosticChannel fake = FakeDiagnosticChannel.uds().on("19 02 FF", answers);
+        FakeDiagnosticChannel fake = FakeDiagnosticChannel.uds().on("19 02 AE", answers);
         ClockAdvancingChannel ch = new ClockAdvancingChannel(fake, time, Duration.ofSeconds(4));
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time, timings).readDtcs();
         DiagResult.PendingLimitExceeded<?> p = assertInstanceOf(DiagResult.PendingLimitExceeded.class, r, r.message());
@@ -210,7 +210,7 @@ class NegativeResponseTest {
         DiagTimings timings = new DiagTimings(Duration.ofSeconds(1), Duration.ofSeconds(5), 100, Duration.ofSeconds(10));
         String[] answers = new String[20];
         java.util.Arrays.fill(answers, "7F 19 78");
-        FakeDiagnosticChannel fake = FakeDiagnosticChannel.uds().on("19 02 FF", answers);
+        FakeDiagnosticChannel fake = FakeDiagnosticChannel.uds().on("19 02 AE", answers);
         DiagResult<DtcList> r = new UdsDiagnosticService(new ClockAdvancingChannel(fake, time, Duration.ofSeconds(5)), time, timings)
                 .readDtcs();
         assertInstanceOf(DiagResult.PendingLimitExceeded.class, r);
@@ -220,7 +220,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("7F 19 78 then silence gives TimedOut after the pending timeout, counting the 78")
     void pendingThenSilence() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 19 78");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 19 78");
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         DiagResult.TimedOut<?> t = assertInstanceOf(DiagResult.TimedOut.class, r);
         assertEquals(DiagTimings.RESPONSE_PENDING_TIMEOUT, t.waited());
@@ -229,9 +229,9 @@ class NegativeResponseTest {
     }
 
     @Test
-    @DisplayName("a 78 for another service (7F 22 78 to 19 02 FF) is not waited on: malformed")
+    @DisplayName("a 78 for another service (7F 22 78 to 19 02 AE) is not waited on: malformed")
     void pendingForOtherService() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF", "7F 22 78", "59 02 FF");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE", "7F 22 78", "59 02 FF");
         DiagResult<DtcList> r = new UdsDiagnosticService(ch, time).readDtcs();
         assertInstanceOf(DiagResult.Malformed.class, r);
         assertEquals(List.of(Call.Kind.REQUEST), kinds(ch));
@@ -240,9 +240,9 @@ class NegativeResponseTest {
     // ---- other outcomes ----
 
     @Test
-    @DisplayName("no answer to 19 02 FF gives TimedOut with the request timeout")
+    @DisplayName("no answer to 19 02 AE gives TimedOut with the request timeout")
     void timeout() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().onTimeout("19 02 FF");
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().onTimeout("19 02 AE");
         DiagResult.TimedOut<?> t = assertInstanceOf(DiagResult.TimedOut.class, new UdsDiagnosticService(ch, time).readDtcs());
         assertEquals(DiagTimings.DEFAULT_REQUEST_TIMEOUT, t.waited());
         assertEquals(0, t.pendingResponses());
@@ -252,7 +252,7 @@ class NegativeResponseTest {
     @DisplayName("a transport failure (module sent A8) gives TransportFailure with the kind and detail")
     void transportFailure() throws InterruptedException {
         FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp()
-                .on("18 02", new Response.Failed(Response.Failed.Kind.DISCONNECTED_BY_MODULE, "module sent A8"));
+                .on("18 02 FF 00", new Response.Failed(Response.Failed.Kind.DISCONNECTED_BY_MODULE, "module sent A8"));
         DiagResult.TransportFailure<?> f = assertInstanceOf(DiagResult.TransportFailure.class,
                 new KwpDiagnosticService(ch, time).readDtcs());
         assertEquals(Response.Failed.Kind.DISCONNECTED_BY_MODULE, f.kind());
@@ -262,7 +262,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("a transport failure while waiting after 7F 19 78 is reported as TransportFailure")
     void failureDuringPending() throws InterruptedException {
-        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 FF",
+        FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds().on("19 02 AE",
                 new Response.Received(Hex.parse("7F 19 78")),
                 new Response.Failed(Response.Failed.Kind.ADAPTER_ERROR, "unplugged"));
         assertInstanceOf(DiagResult.TransportFailure.class, new UdsDiagnosticService(ch, time).readDtcs());
@@ -273,7 +273,7 @@ class NegativeResponseTest {
     void malformedNegatives() throws InterruptedException {
         for (String bad : new String[] {"", "7F", "7F 19", "7F 22 31"}) {
             FakeDiagnosticChannel ch = FakeDiagnosticChannel.uds()
-                    .on("19 02 FF", new Response.Received(Hex.parse(bad)));
+                    .on("19 02 AE", new Response.Received(Hex.parse(bad)));
             DiagResult.Malformed<?> m = assertInstanceOf(DiagResult.Malformed.class,
                     new UdsDiagnosticService(ch, time).readDtcs(), "for '" + bad + "'");
             assertEquals(RawBytes.ofHex(bad), m.response());

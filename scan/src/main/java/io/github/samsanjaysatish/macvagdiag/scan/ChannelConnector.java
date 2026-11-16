@@ -6,7 +6,9 @@ import io.github.samsanjaysatish.macvagdiag.can.CanAdapter;
 import io.github.samsanjaysatish.macvagdiag.can.CanAdapterException;
 import io.github.samsanjaysatish.macvagdiag.can.Hex;
 import io.github.samsanjaysatish.macvagdiag.can.TimeSource;
+import io.github.samsanjaysatish.macvagdiag.diag.DiagTimings;
 import io.github.samsanjaysatish.macvagdiag.diag.DiagnosticService;
+import io.github.samsanjaysatish.macvagdiag.diag.KwpOptions;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import io.github.samsanjaysatish.macvagdiag.transport.ChannelFactory;
 import io.github.samsanjaysatish.macvagdiag.transport.DiagnosticChannel;
@@ -71,11 +73,13 @@ final class ChannelConnector implements ModuleConnector {
     }
 
     @Override
-    public ModuleConnection connect(ModuleLink link) throws InterruptedException, ConnectFailedException {
+    public ModuleConnection connect(ModuleAddress module, ModuleLink link)
+            throws InterruptedException, ConnectFailedException {
         ModuleRoute route = route(link);
         try {
             DiagnosticChannel channel = factory.open(route);
-            return new Connection(link, channel, DiagnosticService.forChannel(channel, time));
+            return new Connection(link, channel,
+                    DiagnosticService.forChannel(channel, time, DiagTimings.DEFAULTS, kwpOptions(module)));
         } catch (TransportException e) {
             throw new ConnectFailedException(switch (e.reason()) {
                 case NO_RESPONSE -> ConnectFailedException.Kind.NO_RESPONSE;
@@ -88,7 +92,15 @@ final class ChannelConnector implements ModuleConnector {
         }
     }
 
-    /** scan's link → transport's route. UNCONFIRMED mapping: see {@link ModuleAddress}. */
+    /**
+     * diag's per-module KWP choices: 01 Engine gets {@link KwpOptions#ENGINE} ({@code 18 00 FF 00}, P-codes), every
+     * other module {@link KwpOptions#DEFAULT} ({@code 18 02 FF 00}), as VCDS did on the 2026-11-13 capture.
+     */
+    static KwpOptions kwpOptions(ModuleAddress module) {
+        return module.equals(ModuleAddress.ENGINE) ? KwpOptions.ENGINE : KwpOptions.DEFAULT;
+    }
+
+    /** scan's link → transport's route; the table is in {@link ModuleAddress}. */
     static ModuleRoute route(ModuleLink link) {
         return switch (link) {
             case ModuleLink.Tp20 t -> new ModuleRoute.Tp20(t.logicalAddress());

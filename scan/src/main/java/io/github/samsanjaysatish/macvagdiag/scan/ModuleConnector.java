@@ -22,11 +22,13 @@ interface ModuleConnector extends AutoCloseable {
     void attach(RequestObserver observer);
 
     /**
-     * Opens a channel to the module on {@code link}.
+     * Opens a channel to {@code module} on {@code link} (one of its links). The module is passed so the diag
+     * service can be set up for it (01 Engine reads its KWP fault codes with {@code 18 00 FF 00}, the others with
+     * {@code 18 02 FF 00}).
      *
      * @throws ConnectFailedException if the module didn't answer or refused, or the adapter failed
      */
-    ModuleConnection connect(ModuleLink link) throws InterruptedException, ConnectFailedException;
+    ModuleConnection connect(ModuleAddress module, ModuleLink link) throws InterruptedException, ConnectFailedException;
 
     /** The adapter failed (e.g. unplugged): close it so the next {@link #checkAdapter} tries to reopen it. */
     void adapterFailed(String detail);

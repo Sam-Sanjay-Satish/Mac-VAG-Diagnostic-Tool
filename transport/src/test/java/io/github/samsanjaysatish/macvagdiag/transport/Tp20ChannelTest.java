@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * VW TP 2.0 against hand-written frames. All byte layouts are UNCONFIRMED (from memory) until the capture;
@@ -120,6 +122,35 @@ class Tp20ChannelTest {
         assertEquals(TransportException.Reason.DISALLOWED_CAN_ID,
                 assertThrows(TransportException.class, this::connect).reason());
         assertEquals(1, adapter.sentFrames().size());
+    }
+
+    @ParameterizedTest(name = "module {0} negotiating tester tx {1} (seen 2026-11-13, approved 2026-11-15) opens")
+    @CsvSource({"1F, 2E 03, 32E", "20, 38 03, 338", "2C, 3C 03, 33C"})
+    void capturedTp20TxIdsOpen(String address, String txField, String tx) throws Exception {
+        int addr = Integer.parseInt(address, 16);
+        int txId = Integer.parseInt(tx, 16);
+        script.expect(0x200, address + " C0 00 10 00 03 01", reply(0x200 + addr, "00 D0 00 03 " + txField + " 01"))
+                .expect(txId, "A0 0F 8A FF 32 FF", reply(0x300, "A1 0F 8A FF 4F FF"))
+                .expect(txId, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 00 02 50 89"))
+                .expect(txId, "B1");
+
+        Tp20Channel ch = Tp20Channel.connect(new BusGate(adapter, time), addr);
+
+        assertEquals(txId, ch.txId());
+        assertEquals(0x300, ch.rxId());
+        assertEquals(received("50 89"), ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        script.assertComplete();
+    }
+
+    @ParameterizedTest(name = "setup negotiating tester tx {1} is refused and nothing is sent on it")
+    @CsvSource({"2D 03, 32D", "2F 03, 32F", "37 03, 337", "39 03, 339", "3B 03, 33B", "3D 03, 33D",
+            "3F 07, 73F", "C0 07, 7C0", "00 07, 700", "DF 07, 7DF", "14 07, 714", "32 07, 732"})
+    void unlistedTp20TxIdsRefused(String txField, String tx) {
+        script.expect(0x200, "1F C0 00 10 00 03 01", reply(0x21F, "00 D0 00 03 " + txField + " 01"));
+        TransportException e = assertThrows(TransportException.class,
+                () -> Tp20Channel.connect(new BusGate(adapter, time), 0x1F));
+        assertEquals(TransportException.Reason.DISALLOWED_CAN_ID, e.reason());
+        assertEquals(List.of("200 [7] 1F C0 00 10 00 03 01"), adapter.sentFrames().stream().map(Object::toString).toList());
     }
 
     @Test
@@ -401,6 +432,98 @@ class Tp20ChannelTest {
         assertEquals(received("5A 9B"), ch.awaitResponse(Duration.ofSeconds(5)));
         assertEquals(Duration.ofSeconds(2), time.elapsed().minus(before));
         script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("capture frame 300#14 80 03 7F 22 78: length flag bit 15 masked, ACK B5, then the answer; counters stay right")
+    void responsePendingLengthFlagFromCapture() throws Exception {
+        Tp20Channel ch = connected();
+        for (int i = 0; i < 4; i++) { // bring both sequence counters to 4, as in the capture
+            script.expect(0x740, String.format("1%X 00 01 3E", i), reply(0x300, String.format("B%X", i + 1)),
+                            reply(0x300, String.format("1%X 00 01 7E", i)))
+                    .expect(0x740, String.format("B%X", i + 1));
+        }
+        script.expect(0x740, "14 00 03 22 F1 87", reply(0x300, "B5"), reply(0x300, "14 80 03 7F 22 78"),
+                        replyAfter(Duration.ofMillis(80), 0x300, "25 00 0A 62 F1 87 30 33"),
+                        replyAfter(Duration.ofMillis(90), 0x300, "16 4C 39 39 37 30"))
+                .expect(0x740, "B5")
+                .expect(0x740, "B7")
+                .expect(0x740, "15 00 01 3E", reply(0x300, "B6"), reply(0x300, "17 00 01 7E"))
+                .expect(0x740, "B8");
+        for (int i = 0; i < 4; i++) {
+            assertEquals(received("7E"), ch.exchange(Hex.parse("3E"), TIMEOUT));
+        }
+
+        assertEquals(received("7F 22 78"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
+        assertTrue(ch.isOpen(), "a response pending no longer fails the channel");
+        assertEquals(received("62 F1 87 30 33 4C 39 39 37 30"), ch.awaitResponse(Duration.ofSeconds(5)));
+        assertEquals(received("7E"), ch.exchange(Hex.parse("3E"), TIMEOUT));
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("engine 1A 86 shape: 10 80 03 7F 1A 78, then a 50-byte answer 21 00 32 ... 18 ACKed B9; next exchange in step")
+    void responsePendingThenMultiPacketAnswer() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 1A 86", reply(0x300, "B1"), reply(0x300, "10 80 03 7F 1A 78"),
+                        replyAfter(Duration.ofMillis(125), 0x300, "21 00 32 5A 86 01 02 03"),
+                        replyAfter(Duration.ofMillis(131), 0x300, "22 04 05 06 07 08 09 0A"),
+                        replyAfter(Duration.ofMillis(137), 0x300, "23 0B 0C 0D 0E 0F 10 11"),
+                        replyAfter(Duration.ofMillis(143), 0x300, "24 12 13 14 15 16 17 18"),
+                        replyAfter(Duration.ofMillis(149), 0x300, "25 19 1A 1B 1C 1D 1E 1F"),
+                        replyAfter(Duration.ofMillis(155), 0x300, "26 20 21 22 23 24 25 26"),
+                        replyAfter(Duration.ofMillis(161), 0x300, "27 27 28 29 2A 2B 2C 2D"),
+                        replyAfter(Duration.ofMillis(167), 0x300, "18 2E 2F 30"))
+                .expect(0x740, "B1")
+                .expect(0x740, "B9")
+                .expect(0x740, "11 00 02 1A 9B", reply(0x300, "B2"), reply(0x300, "19 00 02 5A 9B"))
+                .expect(0x740, "BA");
+
+        assertEquals(received("7F 1A 78"), ch.exchange(Hex.parse("1A 86"), TIMEOUT));
+        byte[] answer = new byte[50];
+        answer[0] = 0x5A;
+        answer[1] = (byte) 0x86;
+        for (int i = 2; i < answer.length; i++) {
+            answer[i] = (byte) (i - 1);
+        }
+        assertEquals(new Response.Received(answer), ch.awaitResponse(Duration.ofSeconds(5)));
+        assertEquals(received("5A 9B"), ch.exchange(Hex.parse("1A 9B"), TIMEOUT));
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("the flag is masked on any message: 10 80 02 50 89 is a 2-byte 50 89")
+    void lengthFlagMaskedOnAnyMessage() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 80 02 50 89"))
+                .expect(0x740, "B1");
+        assertEquals(received("50 89"), ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        assertTrue(ch.isOpen());
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("bit 14 is not a known flag (never seen): 10 40 02 50 89 announces 16386 bytes, PROTOCOL_ERROR")
+    void lengthBit14NotMasked() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 40 02 50 89"))
+                .expect(0x740, "B1")
+                .expect(0x740, "A8");
+        Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        assertEquals(Response.Failed.Kind.PROTOCOL_ERROR, f.kind());
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("we never set the flag: a request over 7FFF bytes is refused without sending")
+    void requestTooLongForLengthField() throws Exception {
+        Tp20Channel ch = connected();
+        int before = adapter.sentFrames().size();
+        assertEquals(Response.Failed.Kind.PROTOCOL_ERROR,
+                assertInstanceOf(Response.Failed.class, ch.exchange(new byte[0x8000], TIMEOUT)).kind());
+        assertEquals(before, adapter.sentFrames().size());
+        assertTrue(ch.isOpen());
+        assertEquals(0x7FFF, Tp20Channel.MAX_MESSAGE_LENGTH);
     }
 
     @Test

@@ -43,7 +43,7 @@ public final class VinMask {
         r.vin().ifPresent(vins::add);
         List<ModuleResult> modules = r.modules().stream().map(m -> mask(m, vins)).toList();
         return new AutoScanResult(r.scanId(), r.caller(), r.startedAt(), r.finishedAt(), r.vin().map(VinMask::mask),
-                r.vinSource(), modules, r.cancelled(), r.demo(), maskAll(r.notes(), vins));
+                r.vinSource(), modules, r.cancelled(), r.demo(), maskAll(r.notes(), vins), r.installationList());
     }
 
     static VehicleInfo mask(VehicleInfo v) {
@@ -66,7 +66,7 @@ public final class VinMask {
                 mask(f.freezeFrame(), vins))).toList();
         return new ModuleResult(m.module(), m.status(), m.link(), m.identification().map(e -> mask(e, vins)), faults,
                 m.faultListComplete(), maskAll(m.notes(), vins), m.limitHit(), m.requests(), m.startedAt(),
-                m.finishedAt());
+                m.finishedAt(), m.gatewayStatus());
     }
 
     static EcuInfo mask(EcuInfo e, Set<String> vins) {

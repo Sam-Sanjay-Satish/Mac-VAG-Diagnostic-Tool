@@ -5,12 +5,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A KWP2000 DTC: a 16-bit VAG fault code and a status byte, e.g. record {@code 41 2C A3} = code 16684.
+ * A KWP2000 DTC: a 16-bit VAG fault code and a status byte, e.g. engine record {@code 04 01 61} = 001025
+ * (P0401), status {@code 61}.
  *
  * @param code the 16-bit value of the two code bytes, high byte first
  * @param status the status byte
- * @param obdCode the matching OBD code (e.g. {@code P0300}) if a {@link VagCodeMapping} knows it; empty by default,
- *     because the VAG to P-code scheme is not hard-coded from memory
+ * @param obdCode the matching OBD code (e.g. {@code P0401}) if the module's {@link VagCodeMapping} knows it
  */
 public record KwpDtc(int code, KwpDtcStatus status, Optional<String> obdCode) implements Dtc {
 
@@ -42,10 +42,13 @@ public record KwpDtc(int code, KwpDtcStatus status, Optional<String> obdCode) im
         return new RawBytes(new byte[] {(byte) (code >> 8), (byte) code, (byte) status.raw()});
     }
 
-    /** UNCONFIRMED: the 5-digit decimal of the 16-bit value, e.g. {@code 41 2C} = {@code 16684}. */
+    /**
+     * The decimal of the 16-bit value as VCDS shows it: 6 digits when there is an OBD code ({@code 011174}),
+     * 5 otherwise ({@code 01304}). See {@link DtcCodes#vagSixDigit}.
+     */
     @Override
     public String displayCode() {
-        return DtcCodes.vagFiveDigit(code);
+        return obdCode.isPresent() ? DtcCodes.vagSixDigit(code) : DtcCodes.vagFiveDigit(code);
     }
 
     @Override

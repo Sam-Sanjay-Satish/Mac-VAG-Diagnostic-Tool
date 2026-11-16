@@ -1,0 +1,276 @@
+Wednesday,11,November,2026,19:32:54:00009
+VCDS -- Windows Based VAG/VAS Emulator Running on Windows 10 x64
+VCDS Version: 26.9.0.3
+Data version: 20260828 DS378.0
+www.Ross-Tech.com
+
+
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+                Address 01: Engine       Labels: 03L-906-022-CBE.clb
+Control Module Part Number: 03L 997 030 M    HW: 03L 907 309 AA
+  Component and/or Version: R4 2.0l TDI G000AG  9983
+           Software Coding: 0050078
+            Work Shop Code: WSC 00066 000 00000
+                      VCID: 387F9DE74B53825DB8-806C
+12 Faults Found:
+
+011174 - NOx Emissions Exceeded 
+               P2BA6 - 000 - SCR Catalyst Malfunction - MIL ON
+             Freeze Frame:
+                    Fault Status: 11100000
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:31
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Load: 0.0 %
+                    Pressure: 1004.3 mbar
+                    Temperature: 13.5°C
+                    Mass Air / Rev.: 260.0 mg/str
+                    Temperature: 48.6°C
+
+006744 - NOx Catalyst 
+               P1A58 - 000 - Regeneration Required
+             Freeze Frame:
+                    Fault Status: 01100000
+                    Fault Priority: 6
+                    Fault Frequency: 255
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:32
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Load: 0.0 %
+                    Pressure: 1004.3 mbar
+                    Temperature: 13.5°C
+                    Mass Air / Rev.: 260.0 mg/str
+                    Temperature: 48.6°C
+
+006470 - Control Module 1 for Coolant Fan 
+               P1946 - 000 - Defective - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 255
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:13:44
+
+             Freeze Frame:
+                    RPM: 828 /min
+                    Speed: 0.0 km/h
+                    Temperature: 48.6°C
+                    Temperature: 96.3°C
+                    Temperature: 13.5°C
+                    Lambda: 34.7 %
+                    Lambda: 0.0 %
+
+001025 - EGR System 
+               P0401 - 001 - Insufficient Flow
+             Freeze Frame:
+                    Fault Status: 01100001
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 362256 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:14:01
+
+             Freeze Frame:
+                    RPM: 805 /min
+                    Speed: 0.0 km/h
+                    Voltage: 13.83 V
+                    Load: 71.8 %
+                    Load: 100.0 %
+                    Mass Air / Rev.: 225.0 mg/str
+                    Mass Air / Rev.: 350.0 mg/str
+
+009231 - Exhaust Gas Recirculation System 
+               P240F - 000 - Response too Slow - MIL ON
+             Freeze Frame:
+                    Fault Status: 11100000
+                    Fault Priority: 2
+                    Fault Frequency: 2
+                    Reset counter: 255
+                    Mileage: 362263 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 09:31:21
+
+             Freeze Frame:
+                    RPM: 1472 /min
+                    Speed: 75.0 km/h
+                    Load: 69.0 %
+                    Mass Air / Rev.: 0.0 mg/str
+                    Mass Air / Rev.: 145.0 mg/str
+                    Mass Air / Rev.: 275.0 mg/str
+                    Mass Air / Rev.: 440.0 mg/str
+
+001681 - Fan 1 Control Circuit 
+               P0691 - 000 - Short to GND - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 66
+                    Reset counter: 255
+                    Mileage: 362340 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 18:08:13
+
+             Freeze Frame:
+                    RPM: 1794 /min
+                    Speed: 39.0 km/h
+                    Temperature: 18.9°C
+                    Temperature: 74.7°C
+                    Temperature: 15.3°C
+                    Lambda: 9.5 %
+                    Lambda: 0.0 %
+
+001348 - Sensor 1 for Exhaust Temp Bank 1 (G235) 
+               P0544 - 000 - Circuit Malfunction - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100000
+                    Fault Priority: 2
+                    Fault Frequency: 14
+                    Reset counter: 255
+                    Mileage: 363948 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 12:38:57
+
+             Freeze Frame:
+                    RPM: 2990 /min
+                    Speed: 93.0 km/h
+                    Voltage: 13.83 V
+                    Temperature: 88.2°C
+                    Temperature: 930.0°C
+                    Temperature: 516.0°C
+                    Temperature: 444.0°C
+
+001025 - EGR System 
+               P0401 - 002 - Insufficient Flow - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100010
+                    Fault Priority: 2
+                    Fault Frequency: 7
+                    Reset counter: 255
+                    Mileage: 365708 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 16:37:56
+
+             Freeze Frame:
+                    RPM: 1541 /min
+                    Speed: 64.0 km/h
+                    Voltage: 13.91 V
+                    Load: 92.9 %
+                    Load: 100.0 %
+                    Mass Air / Rev.: 360.0 mg/str
+                    Mass Air / Rev.: 515.0 mg/str
+
+001348 - Sensor 1 for Exhaust Temp Bank 1 (G235) 
+               P0544 - 001 - Circuit Malfunction - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100001
+                    Fault Priority: 2
+                    Fault Frequency: 29
+                    Reset counter: 255
+                    Mileage: 363948 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 12:38:53
+
+             Freeze Frame:
+                    RPM: 1725 /min
+                    Speed: 88.0 km/h
+                    Voltage: 13.76 V
+                    Temperature: 96.3°C
+                    Temperature: 930.0°C
+                    Temperature: 534.0°C
+                    Temperature: 420.0°C
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 001 - Too Low - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100001
+                    Fault Priority: 2
+                    Fault Frequency: 254
+                    Reset counter: 255
+                    Mileage: 366163 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:40
+
+             Freeze Frame:
+                    RPM: 1633 /min
+                    Inj. Quantity: 42.8 mg/str
+                    (no units): 5.0
+                    Pressure: 1368.0 bar
+                    Pressure: 176.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 002 - Too Low
+             Freeze Frame:
+                    Fault Status: 01100010
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 255
+                    Mileage: 366163 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:41
+
+             Freeze Frame:
+                    RPM: 1886 /min
+                    Inj. Quantity: 25.0 mg/str
+                    (no units): 5.0
+                    Pressure: 1376.0 bar
+                    Pressure: 264.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+000135 - Fuel Rail/System Pressure 
+               P0087 - 006 - Too Low - Intermittent
+             Freeze Frame:
+                    Fault Status: 00100110
+                    Fault Priority: 2
+                    Fault Frequency: 1
+                    Reset counter: 255
+                    Mileage: 366164 km
+                    Time Indication: 0
+                    Date: 2021.04.03.
+                    Time: 15:38:47
+
+             Freeze Frame:
+                    RPM: 2576 /min
+                    Inj. Quantity: 20.3 mg/str
+                    (no units): 4.0
+                    Pressure: 1488.0 bar
+                    Pressure: 80.0 bar
+                    Temperature: 60.3°C
+                    Tank Cont.: 2.8 l
+
+
+Readiness: 1 4 0 0 0 

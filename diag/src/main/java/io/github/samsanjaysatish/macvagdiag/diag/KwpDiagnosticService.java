@@ -4,67 +4,98 @@ import io.github.samsanjaysatish.macvagdiag.can.TimeSource;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import io.github.samsanjaysatish.macvagdiag.transport.DiagnosticChannel;
 import java.util.ArrayList;
-import java.util.EnumMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.SequencedMap;
 
 /**
- * VW KWP2000 (ISO 14230-3 as VW uses it) over a KWP2000 channel, normally TP 2.0.
- *
- * <p><b>Built before the sniffing capture: every request parameter and response layout here is from memory and
- * UNCONFIRMED</b>, kept in the named constants below so the capture can correct it in one place.
+ * VW KWP2000 (ISO 14230-3 as VW uses it) over a KWP2000 channel, normally TP 2.0. Request shapes and response
+ * layouts follow the 2026-11-13 capture of the target car (see {@code diag/CLAUDE.md}).
  *
  * <ul>
- *   <li>DTCs: {@code 18 02} → {@code 58 [count] ([code hi] [code lo] [status])...}. The ISO 14230 long form
- *       {@code 18 02 FF 00} (status + group) is refused by the approved allowlist, so only the one-byte form is
- *       sent; whether VW modules accept it is an open question for the user.</li>
- *   <li>Identification: {@code 1A 9B} (VW identification block, kept raw: the layout isn't decoded yet) and
- *       {@code 1A 90} (VIN, 17 ASCII characters).</li>
- *   <li>Freeze frame: not available. The allowlisted {@code 12 xx} can't name a DTC (ISO 14230 needs a record
- *       access method after the frame number), so {@link #readFreezeFrame} sends nothing and says so.</li>
+ *   <li>DTCs: {@code 18 00 FF 00} (engine) or {@code 18 02 FF 00} (others), chosen by {@link KwpOptions} →
+ *       {@code 58 [count] ([code hi] [code lo] [status])...}.</li>
+ *   <li>Identification: {@code 1A 9B} (VW identification block, decoded), then {@code 1A 90} (VIN). Modules that
+ *       refuse {@code 1A 9B} (03 ABS, 09 BCM and the 19 gateway answer {@code 7F 1A 11}) are read with one
+ *       UDS-style {@code 22 [DID]} per field instead ({@link #FALLBACK_DIDS}).</li>
+ *   <li>Freeze frame: {@code 12 00 04 [hi] [lo]}, one request per call (see {@link DiagnosticService#readFreezeFrame}
+ *       for the order rule).</li>
+ *   <li>Installation list (gateway): {@code 22 04 A1}.</li>
  * </ul>
  */
 public final class KwpDiagnosticService implements DiagnosticService {
 
-    /** UNCONFIRMED: the one status byte sent with {@code 18}. */
-    public static final int DTC_STATUS_PARAMETER = 0x02;
-    /** UNCONFIRMED: {@code 1A 9B}, VW ECU identification block (part number, component, coding, workshop code). */
+    /** {@code 1A 9B}: VW ECU identification block (part number, software version, coding, workshop code, component). */
     public static final int ID_OPTION_VW_ECU_IDENTIFICATION = 0x9B;
-    /** UNCONFIRMED: {@code 1A 90}, VIN (ISO 14230 identification option). */
+    /**
+     * UNCONFIRMED: {@code 1A 90}, VIN (ISO 14230 identification option). VCDS never sent it on the capture (it
+     * reads the VIN with OBD-II {@code 09 02}); kept because {@code scan} reads the VIN from identification.
+     */
     public static final int ID_OPTION_VIN = 0x90;
-    /** The identification options read, in order. UNCONFIRMED which ones VCDS reads. */
-    public static final List<Integer> IDENTIFICATION_OPTIONS = List.of(ID_OPTION_VW_ECU_IDENTIFICATION, ID_OPTION_VIN);
+
+    /**
+     * The DIDs read with {@code 22} when {@code 1A 9B} is refused, in order, and the field each decodes to. The
+     * same identification DIDs VCDS read from 03, 09 and 19 on the capture ({@code F187} etc.); {@code F190} (VIN)
+     * isn't among them.
+     */
+    public static final SequencedMap<Integer, EcuIdentification.Field> FALLBACK_DIDS;
+
+    static {
+        SequencedMap<Integer, EcuIdentification.Field> m = new LinkedHashMap<>();
+        m.put(UdsDiagnosticService.DID_SPARE_PART_NUMBER, EcuIdentification.Field.PART_NUMBER);
+        m.put(UdsDiagnosticService.DID_SOFTWARE_VERSION, EcuIdentification.Field.SOFTWARE_VERSION);
+        m.put(UdsDiagnosticService.DID_HARDWARE_NUMBER, EcuIdentification.Field.HARDWARE_NUMBER);
+        m.put(UdsDiagnosticService.DID_SYSTEM_NAME, EcuIdentification.Field.SYSTEM_NAME);
+        m.put(UdsDiagnosticService.DID_VW_CODING, EcuIdentification.Field.CODING);
+        FALLBACK_DIDS = Collections.unmodifiableSequencedMap(m);
+    }
+
+    /** Most requests {@link #readIdentification} sends: {@code 1A 9B} then either {@code 1A 90} or the DIDs. */
+    public static final int MAX_IDENTIFICATION_REQUESTS = 1 + Math.max(1, FALLBACK_DIDS.size());
+    /** Requests {@link #readFreezeFrame} sends: one {@code 12 00 04 [hi] [lo]}. */
+    public static final int FREEZE_FRAME_REQUESTS = 1;
 
     /** {@code 58 [count]}. */
     static final int DTC_HEADER_LENGTH = 2;
-    /** UNCONFIRMED: {@code [code hi] [code lo] [status]}. */
+    /** {@code [code hi] [code lo] [status]}. */
     static final int DTC_RECORD_LENGTH = 3;
-    static final int VIN_LENGTH = 17;
 
-    static final String FREEZE_FRAME_NOT_AVAILABLE = "KWP2000 freeze frames need a request that names the DTC "
-            + "(ISO 14230 '12 [frame] [record access method] ...'); the approved allowlist only has the one-byte "
-            + "'12 xx' form. Open question for the user, pending the capture.";
+    // 1A 9B data layout (after 5A 9B), 46 bytes on every KWP module of the capture (01, 02, 08, 44).
+    static final int ID_9B_LENGTH = 46;
+    static final int ID_9B_PART_NUMBER_END = 12;   // 12 ASCII, e.g. "03L997030M  "
+    static final int ID_9B_SOFTWARE_END = 16;      // 4 ASCII, e.g. "9983"
+    static final int ID_9B_CODING_END = 20;        // [type] [3 bytes], e.g. 03 00 C3 9E = coding 0050078
+    static final int ID_9B_WORKSHOP_END = 26;      // 6 bytes workshop code, kept raw
+    /** Bytes 26..45: component name, 20 ASCII, e.g. "R4 2.0l TDI G000AG  ". */
+    static final int ID_9B_COMPONENT_END = 46;
+    /**
+     * Coding type byte {@code 03}: the next 3 bytes are the coding as a 7-digit decimal ({@code 00 C3 9E} =
+     * {@code 0050078}; 01 and 02 on the capture). {@code 00 00 00 00} = no coding (08 and 44; VCDS shows none).
+     * UNCONFIRMED: other type values (kept raw with a note).
+     */
+    static final int CODING_TYPE_DECIMAL = 0x03;
 
     private final Exchange exchange;
-    private final VagCodeMapping codeMapping;
+    private final KwpOptions options;
 
     public KwpDiagnosticService(DiagnosticChannel channel, TimeSource time) {
-        this(channel, time, DiagTimings.DEFAULTS, VagCodeMapping.NONE);
+        this(channel, time, DiagTimings.DEFAULTS, KwpOptions.DEFAULT);
     }
 
     /**
-     * @param codeMapping VAG → OBD code mapping for {@link KwpDtc#obdCode()}; {@link VagCodeMapping#NONE} until
-     *     it is derived from the VCDS log
+     * @param options the module's DTC request and code mapping ({@link KwpOptions#ENGINE} for 01 Engine,
+     *     {@link KwpOptions#DEFAULT} otherwise)
      * @throws IllegalArgumentException if the channel isn't KWP2000
      */
-    public KwpDiagnosticService(DiagnosticChannel channel, TimeSource time, DiagTimings timings, VagCodeMapping codeMapping) {
+    public KwpDiagnosticService(DiagnosticChannel channel, TimeSource time, DiagTimings timings, KwpOptions options) {
         if (channel.protocol() != ApplicationProtocol.KWP2000) {
             throw new IllegalArgumentException("Not a KWP2000 channel: " + channel.route());
         }
         this.exchange = new Exchange(channel, time, timings);
-        this.codeMapping = Objects.requireNonNull(codeMapping, "codeMapping");
+        this.options = Objects.requireNonNull(options, "options");
     }
 
     @Override
@@ -89,54 +120,97 @@ public final class KwpDiagnosticService implements DiagnosticService {
         return exchange.run(DiagRequest.kwpTesterPresent());
     }
 
+    /**
+     * {@code 1A 9B} first. Decoded if it answers; then {@code 1A 90} for the VIN. If {@code 1A 9B} is answered
+     * negatively, {@code 1A} isn't used further and the {@link #FALLBACK_DIDS} are read with {@code 22} instead.
+     */
     @Override
     public DiagResult<EcuIdentification> readIdentification() throws InterruptedException {
-        Map<EcuIdentification.Field, String> fields = new EnumMap<>(EcuIdentification.Field.class);
-        List<RawRecord> records = new ArrayList<>();
-        List<String> notes = new ArrayList<>();
-        DiagResult<EcuIdentification> firstFailure = null;
-        for (int option : IDENTIFICATION_OPTIONS) {
-            DiagRequest request = DiagRequest.kwpReadEcuIdentification(option);
-            DiagResult<RawBytes> r = exchange.run(request);
-            if (r instanceof DiagResult.Success<RawBytes> s) {
-                RawBytes response = s.value();
-                if (!Reads.echoes(response, 1, option)) {
-                    records.add(new RawRecord(request.hex() + " (whole response, option not echoed)", response));
-                    notes.add(request.hex() + ": answer doesn't echo the option, kept raw");
-                    continue;
+        IdentificationReader reader = new IdentificationReader(exchange);
+        DiagRequest block = DiagRequest.kwpReadEcuIdentification(ID_OPTION_VW_ECU_IDENTIFICATION);
+        DiagResult<RawBytes> first = exchange.run(block);
+        switch (first) {
+            case DiagResult.Success<RawBytes> s -> {
+                readOption(reader, block, s.value());
+                DiagRequest vin = DiagRequest.kwpReadEcuIdentification(ID_OPTION_VIN);
+                RawBytes response = reader.run(vin);
+                if (response != null) {
+                    readOption(reader, vin, response);
                 }
-                RawBytes data = RawBytes.slice(response.bytes(), 2, response.length());
-                records.add(new RawRecord(request.hex(), data));
-                if (option == ID_OPTION_VIN) {
-                    decodeVin(data, request, fields, notes);
+            }
+            case DiagResult.Negative<RawBytes> n -> {
+                reader.notes.add(block.hex() + ": " + n.message() + "; reading identification DIDs with 22 instead");
+                for (var e : FALLBACK_DIDS.entrySet()) {
+                    reader.readDid(DiagRequest.kwpReadDataByIdentifier(e.getKey()), e.getKey(), e.getValue());
+                    if (reader.stopped()) {
+                        break;
+                    }
                 }
-            } else if (Reads.partFailureContinues(r)) {
-                notes.add(request.hex() + ": " + r.message());
-                if (firstFailure == null) {
-                    firstFailure = r.failure();
+                if (reader.records.isEmpty() && !reader.stopped()) {
+                    return n.failure();
                 }
-            } else {
-                return r.failure();
+            }
+            case DiagResult.Malformed<RawBytes> m -> {
+                reader.notes.add(block.hex() + ": " + m.message());
+                DiagRequest vin = DiagRequest.kwpReadEcuIdentification(ID_OPTION_VIN);
+                RawBytes response = reader.run(vin);
+                if (response != null) {
+                    readOption(reader, vin, response);
+                } else if (!reader.stopped() && reader.records.isEmpty()) {
+                    return m.failure();
+                }
+            }
+            default -> {
+                return first.failure();
             }
         }
-        if (records.isEmpty()) {
-            return firstFailure;
-        }
-        return new DiagResult.Success<>(new EcuIdentification(ApplicationProtocol.KWP2000, fields, records, notes));
+        return reader.result(ApplicationProtocol.KWP2000);
     }
 
-    private static void decodeVin(RawBytes data, DiagRequest request, Map<EcuIdentification.Field, String> fields,
-            List<String> notes) {
-        data.asciiText().filter(t -> t.length() == VIN_LENGTH).ifPresentOrElse(
-                vin -> fields.put(EcuIdentification.Field.VIN, vin),
-                () -> notes.add(request.hex() + ": not a 17-character VIN, kept raw"));
+    /** One {@code 5A [option] [data]} answer: kept raw, and decoded for {@code 9B} / {@code 90}. */
+    private static void readOption(IdentificationReader reader, DiagRequest request, RawBytes response) {
+        int option = request.bytes()[1] & 0xFF;
+        if (!Reads.echoes(response, 1, option)) {
+            reader.records.add(new RawRecord(request.hex() + " (whole response, option not echoed)", response));
+            reader.notes.add(request.hex() + ": answer doesn't echo the option, kept raw");
+            return;
+        }
+        RawBytes data = RawBytes.slice(response.bytes(), 2, response.length());
+        reader.records.add(new RawRecord(request.hex(), data));
+        if (option == ID_OPTION_VIN) {
+            reader.putVin(data, request);
+        } else if (option == ID_OPTION_VW_ECU_IDENTIFICATION) {
+            decodeIdentificationBlock(reader, request, data);
+        }
+    }
+
+    /** The 46-byte {@code 1A 9B} block; anything else is kept raw with a note. */
+    static void decodeIdentificationBlock(IdentificationReader reader, DiagRequest request, RawBytes data) {
+        if (data.length() != ID_9B_LENGTH) {
+            reader.notes.add(request.hex() + ": " + data.length() + " bytes, not the " + ID_9B_LENGTH
+                    + "-byte block layout; kept raw");
+            return;
+        }
+        byte[] b = data.bytes();
+        reader.putText(EcuIdentification.Field.PART_NUMBER, RawBytes.slice(b, 0, ID_9B_PART_NUMBER_END), request);
+        reader.putText(EcuIdentification.Field.SOFTWARE_VERSION, RawBytes.slice(b, ID_9B_PART_NUMBER_END, ID_9B_SOFTWARE_END), request);
+        int codingType = data.byteAt(ID_9B_SOFTWARE_END);
+        int coding = (data.byteAt(ID_9B_SOFTWARE_END + 1) << 16) | (data.byteAt(ID_9B_SOFTWARE_END + 2) << 8)
+                | data.byteAt(ID_9B_SOFTWARE_END + 3);
+        if (codingType == CODING_TYPE_DECIMAL) {
+            reader.fields.put(EcuIdentification.Field.CODING, String.format("%07d", coding));
+        } else if (codingType != 0 || coding != 0) {
+            reader.notes.add(String.format("%s: coding type %02X not known, coding bytes kept raw (%s)", request.hex(),
+                    codingType, RawBytes.slice(b, ID_9B_SOFTWARE_END, ID_9B_CODING_END).hex()));
+        }
+        reader.putText(EcuIdentification.Field.SYSTEM_NAME, RawBytes.slice(b, ID_9B_WORKSHOP_END, ID_9B_COMPONENT_END), request);
     }
 
     @Override
     public DiagResult<DtcList> readDtcs() throws InterruptedException {
-        DiagResult<RawBytes> r = exchange.run(DiagRequest.kwpReadDtcsByStatus(DTC_STATUS_PARAMETER));
+        DiagResult<RawBytes> r = exchange.run(DiagRequest.kwpReadDtcsByStatus(options.dtcRequest()));
         if (r instanceof DiagResult.Success<RawBytes> s) {
-            return parseDtcs(s.value(), codeMapping);
+            return parseDtcs(s.value(), options.codeMapping());
         }
         return r.failure();
     }
@@ -172,15 +246,29 @@ public final class KwpDiagnosticService implements DiagnosticService {
     }
 
     /**
-     * Not available on KWP2000 yet: sends nothing and returns {@link DiagResult.NotAvailable}, see the class
-     * comment.
+     * {@code 12 00 04 [hi] [lo]} for {@code dtc}'s code, decoded by {@link KwpFreezeFrames}. Call once per DTC list
+     * entry, in list order (see {@link DiagnosticService#readFreezeFrame}).
      */
     @Override
-    public DiagResult<FreezeFrame> readFreezeFrame(Dtc dtc) {
+    public DiagResult<FreezeFrame> readFreezeFrame(Dtc dtc) throws InterruptedException {
         Objects.requireNonNull(dtc, "dtc");
-        if (!(dtc instanceof KwpDtc)) {
+        if (!(dtc instanceof KwpDtc kwp)) {
             throw new IllegalArgumentException("Not a KWP2000 DTC: " + dtc);
         }
-        return new DiagResult.NotAvailable<>(FREEZE_FRAME_NOT_AVAILABLE);
+        DiagRequest request = DiagRequest.kwpReadFreezeFrameByDtc(kwp.code());
+        DiagResult<RawBytes> r = exchange.run(request);
+        if (r instanceof DiagResult.Success<RawBytes> s) {
+            return new DiagResult.Success<>(KwpFreezeFrames.decode(kwp, request, s.value()));
+        }
+        return r.failure();
+    }
+
+    @Override
+    public DiagResult<InstallationList> readInstallationList() throws InterruptedException {
+        DiagResult<RawBytes> r = exchange.run(DiagRequest.kwpReadDataByIdentifier(InstallationList.DID));
+        if (r instanceof DiagResult.Success<RawBytes> s) {
+            return InstallationList.parse(s.value());
+        }
+        return r.failure();
     }
 }

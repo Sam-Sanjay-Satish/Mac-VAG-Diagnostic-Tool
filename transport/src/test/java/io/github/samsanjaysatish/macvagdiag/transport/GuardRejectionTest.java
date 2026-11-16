@@ -215,7 +215,7 @@ class GuardRejectionTest {
         DiagnosticChannel ch = openChannel(UDS);
         Response response = ch.request(Hex.parse("3E 80"), Duration.ofMillis(50));
         assertInstanceOf(Response.TimedOut.class, response);
-        assertEquals(List.of("7E0 [8] 02 3E 80 AA AA AA AA AA"), adapter.sentFrames().stream().map(Object::toString).toList());
+        assertEquals(List.of("7E0 [8] 02 3E 80 55 55 55 55 55"), adapter.sentFrames().stream().map(Object::toString).toList());
     }
 
     @Test

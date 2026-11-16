@@ -32,6 +32,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 /** The JSON-lines audit log: sent and rejected requests with the caller, tool calls, append-only, escaping. */
 class AuditLogTest {
 
+    /** A KWP2000 module over TP 2.0 (09 Central Electrics). */
+    private static final ModuleAddress BCM = ModuleAddress.parse("09");
+
     @Test
     @DisplayName("JSON strings are escaped: quotes, backslash, control characters, U+2028, lone surrogates")
     void escaping() {
@@ -67,15 +70,15 @@ class AuditLogTest {
     @DisplayName("every line has time and event; results carry the caller, operation, outcome and response")
     void resultLines() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create()) {
-            t.connector().kwp("17", () -> Scripts.kwp());
-            t.service().readFaultCodes(Caller.cli(), ModuleAddress.INSTRUMENTS);
+            t.connector().kwp("09", () -> Scripts.kwp());
+            t.service().readFaultCodes(Caller.cli(), BCM);
             for (String line : t.auditLines()) {
                 assertTrue(line.startsWith("{\"time\":\"2026-01-01T00:00"), line);
                 assertTrue(line.contains("\"event\":\""), line);
             }
             List<String> results = t.auditLines("result");
             assertEquals(2, results.size());
-            assertTrue(results.get(0).contains("\"caller\":\"cli\"") && results.get(0).contains("\"module\":\"17\"")
+            assertTrue(results.get(0).contains("\"caller\":\"cli\"") && results.get(0).contains("\"module\":\"09\"")
                     && results.get(0).contains("\"operation\":\"startSession\"")
                     && results.get(0).contains("\"outcome\":\"success\"")
                     && results.get(0).contains("\"responses\":[\"50 89\"]"), results.get(0));
@@ -89,8 +92,8 @@ class AuditLogTest {
     void appendOnly(@TempDir Path dir) throws IOException, InterruptedException {
         Path file = dir.resolve("nested").resolve("audit.jsonl");
         try (TestScanServices t = TestScanServices.create(FakeTimeSource.autoAdvancing(), ScanLimits.DEFAULTS, file)) {
-            t.connector().kwp("17", () -> Scripts.kwp());
-            t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS);
+            t.connector().kwp("09", () -> Scripts.kwp());
+            t.service().readFaultCodes(Caller.web(), BCM);
         }
         List<String> first = Files.readAllLines(file, StandardCharsets.UTF_8);
         assertTrue(first.size() > 4);

@@ -6,6 +6,7 @@ import io.github.samsanjaysatish.macvagdiag.scan.EcuInfo;
 import io.github.samsanjaysatish.macvagdiag.scan.FaultCode;
 import io.github.samsanjaysatish.macvagdiag.scan.FreezeFrameData;
 import io.github.samsanjaysatish.macvagdiag.scan.LimitHit;
+import io.github.samsanjaysatish.macvagdiag.scan.GatewayStatus;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAvailability;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleLink;
@@ -46,8 +47,17 @@ final class ApiJson {
     record Module(String address, String name) {
     }
 
-    record Availability(String address, String name, String reachability, Link link, String message,
-            String checkedAt) {
+    /**
+     * {@code reachability}: {@code RESPONDING}, {@code NOT_RESPONDING}, {@code NOT_CHECKED} or {@code NOT_INSTALLED};
+     * {@code gatewayStatus}: the gateway's installation-list status as VCDS prints it (e.g. {@code Malfunction 0010}),
+     * or null if the list wasn't read.
+     */
+    record Availability(String address, String name, String reachability, Link link, String gatewayStatus,
+            String message, String checkedAt) {
+    }
+
+    /** One entry of the gateway's installation list; {@code name} null for a module not in scan's table. */
+    record GatewayEntry(String address, String name, String kind, String statusHex, String status) {
     }
 
     /** {@code type}: {@code TP20} or {@code ISOTP}; {@code protocol}: {@code KWP2000} or {@code UDS}. */
@@ -56,8 +66,8 @@ final class ApiJson {
 
     /** {@code GET /api/modules/{address}/faults}, and each module of a scan. */
     record ModuleReport(String address, String name, String status, String statusText, boolean responded, Link link,
-            Identification identification, List<Fault> faults, boolean faultListComplete, List<String> notes,
-            Limited limitHit, int requests, String startedAt, String finishedAt) {
+            String gatewayStatus, Identification identification, List<Fault> faults, boolean faultListComplete,
+            List<String> notes, Limited limitHit, int requests, String startedAt, String finishedAt) {
     }
 
     record Identification(String protocol, String partNumber, String softwareVersion, String hardwareNumber,
@@ -100,8 +110,10 @@ final class ApiJson {
     record Event(String type, String message, String at) {
     }
 
+    /** {@code installationList}: the gateway's list (empty if it wasn't read and the fixed list was probed). */
     record Summary(String finishedAt, long durationMs, boolean cancelled, boolean demo, String vin, String vinSource,
-            int modulesChecked, int modulesResponding, int modulesWithFaults, int faultCodes, List<String> notes) {
+            int modulesChecked, int modulesResponding, int modulesWithFaults, int faultCodes, List<String> notes,
+            boolean fromInstallationList, List<GatewayEntry> installationList) {
     }
 
     /**
@@ -124,8 +136,8 @@ final class ApiJson {
 
     static Modules modules(List<ModuleAvailability> list) {
         return new Modules(list.stream().map(a -> new Availability(a.module().hex(), a.module().name(),
-                a.reachability().name(), a.link().map(ApiJson::link).orElse(null), a.message(),
-                time(a.checkedAt()))).toList());
+                a.reachability().name(), a.link().map(ApiJson::link).orElse(null),
+                a.gatewayStatus().map(GatewayStatus::vcdsText).orElse(null), a.message(), time(a.checkedAt()))).toList());
     }
 
     static Link link(ModuleLink l) {
@@ -138,7 +150,8 @@ final class ApiJson {
 
     static ModuleReport module(ModuleResult r) {
         return new ModuleReport(r.module().hex(), r.module().name(), r.status().name(), statusText(r), r.responded(),
-                r.link().map(ApiJson::link).orElse(null), r.identification().map(ApiJson::identification).orElse(null),
+                r.link().map(ApiJson::link).orElse(null), r.gatewayStatus().map(GatewayStatus::vcdsText).orElse(null),
+                r.identification().map(ApiJson::identification).orElse(null),
                 r.faults().stream().map(ApiJson::fault).toList(), r.faultListComplete(), r.notes(),
                 r.limitHit().map(ApiJson::limited).orElse(null), r.requests(), time(r.startedAt()),
                 time(r.finishedAt()));
@@ -147,7 +160,10 @@ final class ApiJson {
     private static String statusText(ModuleResult r) {
         return switch (r.status()) {
             case FAULTS -> r.faults().size() + (r.faults().size() == 1 ? " fault code" : " fault codes");
-            case NOT_RESPONDING -> "not reachable (no response: not installed, or not reachable)";
+            case NOT_RESPONDING -> r.gatewayStatus().map(g -> "no response (gateway: " + g.vcdsText() + ")")
+                    .orElse("not reachable (no response: not installed, or not reachable)");
+            case GATEWAY_STATUS_ONLY -> r.gatewayStatus().map(g -> g.vcdsText() + " (from the gateway)")
+                    .orElse(r.status().description());
             default -> r.status().description();
         };
     }
@@ -214,7 +230,10 @@ final class ApiJson {
         return new Summary(time(r.finishedAt()), Duration.between(r.startedAt(), r.finishedAt()).toMillis(),
                 r.cancelled(), r.demo(), r.vin().orElse(null), r.vinSource().map(ModuleAddress::hex).orElse(null),
                 r.modules().size(), r.respondingModules().size(),
-                (int) r.modules().stream().filter(m -> !m.faults().isEmpty()).count(), r.faultCount(), r.notes());
+                (int) r.modules().stream().filter(m -> !m.faults().isEmpty()).count(), r.faultCount(), r.notes(),
+                r.fromInstallationList(), r.installationList().stream().map(g -> new GatewayEntry(g.hex(),
+                        g.module().map(ModuleAddress::name).orElse(null), g.kind().name(),
+                        String.format("%02X", g.statusByte()), g.vcdsText())).toList());
     }
 
     /** A failed scan's cause; a refusal keeps its reason and retry time, anything else is reported generically. */

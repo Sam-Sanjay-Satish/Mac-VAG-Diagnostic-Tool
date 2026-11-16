@@ -9,6 +9,8 @@ import java.util.List;
  *   <li>{@code can-log}: the listen-only CAN logger ({@link CanLogCommand})</li>
  *   <li>{@code list-ports}: serial ports that look like a CANable ({@link ListPortsCommand})</li>
  *   <li>{@code capture-info}: summary of a capture file ({@link CaptureInfoCommand})</li>
+ *   <li>{@code sanitize-capture}: VIN-masked copy of a capture ({@link SanitizeCaptureCommand})</li>
+ *   <li>{@code sanitize-vcds-log}: VIN-masked copy of a VCDS log ({@link SanitizeVcdsLogCommand})</li>
  * </ul>
  * Exit codes: 0 success, 1 failure, 2 bad arguments.
  */
@@ -27,6 +29,8 @@ public final class Main {
               can-log       record CAN traffic in listen-only mode to a candump log file
               list-ports    list serial ports that look like a CANable
               capture-info  summarize a capture file
+              sanitize-capture   mask the VIN in a capture so it can be committed as a fixture
+              sanitize-vcds-log  mask the VIN (and optionally other identifying fields) in a VCDS log
             Run '%s <command> --help' for a command's options.""".formatted(TOOL_NAME, TOOL_NAME);
 
     private Main() {
@@ -47,6 +51,8 @@ public final class Main {
             case "can-log" -> CanLogCommand.run(rest, env);
             case "list-ports" -> ListPortsCommand.run(rest, env);
             case "capture-info" -> CaptureInfoCommand.run(rest, env);
+            case "sanitize-capture" -> SanitizeCaptureCommand.run(rest, env);
+            case "sanitize-vcds-log" -> SanitizeVcdsLogCommand.run(rest, env);
             case "--help", "-h", "help" -> {
                 env.out().println(USAGE);
                 yield EXIT_OK;

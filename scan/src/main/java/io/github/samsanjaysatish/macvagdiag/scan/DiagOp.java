@@ -15,7 +15,8 @@ enum DiagOp {
     TESTER_PRESENT("testerPresent"),
     READ_IDENTIFICATION("readIdentification"),
     READ_DTCS("readDtcs"),
-    READ_FREEZE_FRAME("readFreezeFrame");
+    READ_FREEZE_FRAME("readFreezeFrame"),
+    READ_INSTALLATION_LIST("readInstallationList");
 
     final String label;
 
@@ -27,10 +28,12 @@ enum DiagOp {
     int cost(ApplicationProtocol protocol) {
         boolean kwp = protocol == ApplicationProtocol.KWP2000;
         return switch (this) {
-            case START_SESSION, TESTER_PRESENT, READ_DTCS -> 1; // 10 89 / 10 01, 3E / 3E 00, 18 02 / 19 02 FF
-            case READ_IDENTIFICATION -> kwp ? KwpDiagnosticService.IDENTIFICATION_OPTIONS.size()
+            // 10 89 / 10 03, 3E / 3E 00, 18 0x FF 00 / 19 02 AE, 22 04 A1
+            case START_SESSION, TESTER_PRESENT, READ_DTCS, READ_INSTALLATION_LIST -> 1;
+            case READ_IDENTIFICATION -> kwp ? KwpDiagnosticService.MAX_IDENTIFICATION_REQUESTS
                     : UdsDiagnosticService.IDENTIFICATION_DIDS.size();
-            case READ_FREEZE_FRAME -> kwp ? 0 : 2; // KWP: NotAvailable, nothing sent; UDS: 19 04 + 19 06
+            case READ_FREEZE_FRAME -> kwp ? KwpDiagnosticService.FREEZE_FRAME_REQUESTS // 12 00 04 hi lo
+                    : UdsDiagnosticService.FREEZE_FRAME_REQUESTS; // 19 04 + 19 06
         };
     }
 }

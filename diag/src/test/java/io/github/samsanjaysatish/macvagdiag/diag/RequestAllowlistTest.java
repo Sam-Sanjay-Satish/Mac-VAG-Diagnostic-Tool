@@ -38,21 +38,26 @@ class RequestAllowlistTest {
         m.put("kwpStartVwDiagnosticSession", () -> List.of(DiagRequest.kwpStartVwDiagnosticSession()));
         m.put("kwpTesterPresent", () -> List.of(DiagRequest.kwpTesterPresent()));
         m.put("kwpReadEcuIdentification", () -> allBytes(DiagRequest::kwpReadEcuIdentification));
-        m.put("kwpReadDtcsByStatus", () -> allBytes(DiagRequest::kwpReadDtcsByStatus));
+        m.put("kwpReadDtcsByStatus", () -> Arrays.stream(KwpOptions.DtcRequest.values())
+                .map(DiagRequest::kwpReadDtcsByStatus).toList());
+        m.put("kwpReadFreezeFrameByDtc", () -> all16(DiagRequest::kwpReadFreezeFrameByDtc));
+        m.put("kwpReadDataByIdentifier", () -> all16(DiagRequest::kwpReadDataByIdentifier));
         m.put("udsStartSession", () -> List.of(DiagRequest.udsStartSession(DiagnosticSession.UDS_DEFAULT),
                 DiagRequest.udsStartSession(DiagnosticSession.UDS_EXTENDED)));
         m.put("udsTesterPresent", () -> List.of(DiagRequest.udsTesterPresent()));
         m.put("udsReadDtcsByStatusMask", () -> allBytes(DiagRequest::udsReadDtcsByStatusMask));
         m.put("udsReadSnapshot", () -> byDtc(true));
         m.put("udsReadExtendedData", () -> byDtc(false));
-        m.put("udsReadDataByIdentifier", () -> {
-            List<DiagRequest> all = new ArrayList<>();
-            for (int did = 0; did <= 0xFFFF; did++) {
-                all.add(DiagRequest.udsReadDataByIdentifier(did));
-            }
-            return all;
-        });
+        m.put("udsReadDataByIdentifier", () -> all16(DiagRequest::udsReadDataByIdentifier));
         return m;
+    }
+
+    private static List<DiagRequest> all16(java.util.function.IntFunction<DiagRequest> f) {
+        List<DiagRequest> all = new ArrayList<>();
+        for (int v = 0; v <= 0xFFFF; v++) {
+            all.add(f.apply(v));
+        }
+        return all;
     }
 
     private static List<DiagRequest> allBytes(java.util.function.IntFunction<DiagRequest> f) {
@@ -105,13 +110,17 @@ class RequestAllowlistTest {
                 count++;
             }
         }
-        assertTrue(count > 70_000, "swept " + count);
+        assertTrue(count > 200_000, "swept " + count);
     }
 
     @Test
-    @DisplayName("shapes: KWP 18 xx / 1A xx are 2 bytes (never 18 02 FF 00), KWP 3E is 1 byte, UDS 22 is one DID")
+    @DisplayName("shapes: KWP 18 00 FF 00 / 18 02 FF 00, 12 00 04 hi lo, 22 hi lo; 1A xx 2 bytes, KWP 3E 1 byte, UDS 22 one DID")
     void shapes() {
-        assertEquals("18 02", DiagRequest.kwpReadDtcsByStatus(0x02).hex());
+        assertEquals("18 00 FF 00", DiagRequest.kwpReadDtcsByStatus(KwpOptions.DtcRequest.STATUS_00).hex());
+        assertEquals("18 02 FF 00", DiagRequest.kwpReadDtcsByStatus(KwpOptions.DtcRequest.STATUS_02).hex());
+        assertEquals("12 00 04 2B A6", DiagRequest.kwpReadFreezeFrameByDtc(0x2BA6).hex());
+        assertEquals("22 04 A1", DiagRequest.kwpReadDataByIdentifier(0x04A1).hex());
+        assertEquals(ApplicationProtocol.KWP2000, DiagRequest.kwpReadDataByIdentifier(0x04A1).protocol());
         assertEquals("1A 9B", DiagRequest.kwpReadEcuIdentification(0x9B).hex());
         assertEquals("10 89", DiagRequest.kwpStartVwDiagnosticSession().hex());
         assertEquals("3E", DiagRequest.kwpTesterPresent().hex());
@@ -129,7 +138,9 @@ class RequestAllowlistTest {
     @Test
     @DisplayName("out-of-range parameters and KWP 10 89 as a UDS session are refused before any bytes exist")
     void parameterRanges() {
-        assertThrows(IllegalArgumentException.class, () -> DiagRequest.kwpReadDtcsByStatus(0x100));
+        assertThrows(IllegalArgumentException.class, () -> DiagRequest.kwpReadFreezeFrameByDtc(0x10000));
+        assertThrows(IllegalArgumentException.class, () -> DiagRequest.kwpReadFreezeFrameByDtc(-1));
+        assertThrows(IllegalArgumentException.class, () -> DiagRequest.kwpReadDataByIdentifier(0x10000));
         assertThrows(IllegalArgumentException.class, () -> DiagRequest.kwpReadEcuIdentification(-1));
         assertThrows(IllegalArgumentException.class, () -> DiagRequest.udsReadDtcsByStatusMask(0x1FF));
         assertThrows(IllegalArgumentException.class, () -> DiagRequest.udsReadSnapshot(0x1000000, 0));
@@ -153,18 +164,26 @@ class RequestAllowlistTest {
         FakeTimeSource time = new FakeTimeSource();
         FakeDiagnosticChannel kwp = FakeDiagnosticChannel.kwp()
                 .on("10 89", "50 89").on("3E", "7E").on("1A 9B", "5A 9B 00").on("1A 90", "7F 1A 31")
-                .on("18 02", "58 01 41 2C A3");
+                .on("1A 9B", "7F 1A 11");
+        for (int did : KwpDiagnosticService.FALLBACK_DIDS.keySet()) {
+            kwp.on(Hex.format(new byte[] {0x22, (byte) (did >> 8), (byte) did}), "7F 22 31");
+        }
+        kwp.on("18 02 FF 00", "58 01 41 2C A3").on("12 00 04 41 2C", "7F 12 31").on("22 04 A1", "62 04 A1")
+                .on("18 00 FF 00", "58 00");
         KwpDiagnosticService k = new KwpDiagnosticService(kwp, time);
         k.startSession(DiagnosticSession.KWP_VW_DIAGNOSTIC);
         k.testerPresent();
         k.readIdentification();
+        k.readIdentification(); // the 22 path
         DtcList kd = k.readDtcs().valueIfSuccess().orElseThrow();
         k.readFreezeFrame(kd.dtcs().getFirst());
+        k.readInstallationList();
+        new KwpDiagnosticService(kwp, time, DiagTimings.DEFAULTS, KwpOptions.ENGINE).readDtcs();
 
         FakeDiagnosticChannel uds = FakeDiagnosticChannel.uds()
                 .on("10 03", "50 03 00 32 01 F4").on("10 01", "50 01 00 32 01 F4").on("3E 00", "7E 00")
-                .on("19 02 FF", "59 02 FF 04 01 00 2F")
-                .on("19 04 04 01 00 FF", "7F 19 31").on("19 06 04 01 00 FF", "7F 19 31");
+                .on("19 02 AE", "59 02 FF 04 01 00 2F")
+                .on("19 06 04 01 00 FF", "7F 19 31").on("22 04 A1", "7F 22 31");
         for (int did : UdsDiagnosticService.IDENTIFICATION_DIDS.keySet()) {
             uds.on(Hex.format(new byte[] {0x22, (byte) (did >> 8), (byte) did}), "7F 22 31");
         }
@@ -175,10 +194,12 @@ class RequestAllowlistTest {
         u.readIdentification();
         DtcList ud = u.readDtcs().valueIfSuccess().orElseThrow();
         u.readFreezeFrame(ud.dtcs().getFirst());
+        u.readInstallationList();
 
-        assertEquals(List.of("10 89", "3E", "1A 9B", "1A 90", "18 02"), kwp.requestsHex());
+        assertEquals(List.of("10 89", "3E", "1A 9B", "1A 90", "1A 9B", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97",
+                "22 06 00", "18 02 FF 00", "12 00 04 41 2C", "22 04 A1", "18 00 FF 00"), kwp.requestsHex());
         assertEquals(List.of("10 03", "10 01", "3E 00", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97", "22 06 00",
-                "22 F1 90", "19 02 FF", "19 04 04 01 00 FF", "19 06 04 01 00 FF"), uds.requestsHex());
+                "22 F1 90", "19 02 AE", "19 06 04 01 00 FF", "22 04 A1"), uds.requestsHex());
         for (String hex : kwp.requestsHex()) {
             assertTrue(RequestGuard.isAllowed(ApplicationProtocol.KWP2000, Hex.parse(hex)), hex);
         }

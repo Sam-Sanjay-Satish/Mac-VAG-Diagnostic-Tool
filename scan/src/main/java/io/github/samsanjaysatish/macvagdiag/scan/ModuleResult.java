@@ -19,10 +19,21 @@ import java.util.Optional;
  * @param requests diagnostic requests charged to this module in this scan (budget)
  * @param startedAt when work on this module started
  * @param finishedAt when it ended
+ * @param gatewayStatus what the gateway's installation list said about it (VCDS's "Status" column), if the list
+ *     was read in this scan
  */
 public record ModuleResult(ModuleAddress module, ModuleStatus status, Optional<ModuleLink> link,
         Optional<EcuInfo> identification, List<FaultCode> faults, boolean faultListComplete, List<String> notes,
-        Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt) {
+        Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt,
+        Optional<GatewayStatus> gatewayStatus) {
+
+    /** A result without a gateway status (single-module reads, fixed-list scans). */
+    public ModuleResult(ModuleAddress module, ModuleStatus status, Optional<ModuleLink> link,
+            Optional<EcuInfo> identification, List<FaultCode> faults, boolean faultListComplete, List<String> notes,
+            Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt) {
+        this(module, status, link, identification, faults, faultListComplete, notes, limitHit, requests, startedAt,
+                finishedAt, Optional.empty());
+    }
 
     public ModuleResult {
         Objects.requireNonNull(module, "module");
@@ -34,6 +45,13 @@ public record ModuleResult(ModuleAddress module, ModuleStatus status, Optional<M
         Objects.requireNonNull(limitHit, "limitHit");
         Objects.requireNonNull(startedAt, "startedAt");
         Objects.requireNonNull(finishedAt, "finishedAt");
+        Objects.requireNonNull(gatewayStatus, "gatewayStatus");
+    }
+
+    /** A copy with {@code status} as the gateway status. */
+    public ModuleResult withGatewayStatus(GatewayStatus status) {
+        return new ModuleResult(module, this.status, link, identification, faults, faultListComplete, notes, limitHit,
+                requests, startedAt, finishedAt, Optional.of(status));
     }
 
     /** True if the module answered at all. */

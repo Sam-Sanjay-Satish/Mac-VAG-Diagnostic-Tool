@@ -77,13 +77,15 @@ final class ToolSchemas {
                         "properties": {
                           "address": {"$ref": "#/$defs/address"},
                           "name": {"type": "string"},
-                          "reachability": {"enum": ["RESPONDING", "NOT_RESPONDING", "NOT_CHECKED"]},
+                          "reachability": {"enum": ["RESPONDING", "NOT_RESPONDING", "NOT_CHECKED", "NOT_INSTALLED"]},
                           "protocol": {"$ref": "#/$defs/protocolOrNull"},
                           "link": {"type": ["string", "null"]},
+                          "gatewayStatus": {"type": ["string", "null"]},
                           "message": {"type": "string"},
                           "timestamp": {"$ref": "#/$defs/timestamp"}
                         },
-                        "required": ["address", "name", "reachability", "protocol", "link", "message", "timestamp"],
+                        "required": ["address", "name", "reachability", "protocol", "link", "gatewayStatus", "message",
+                                     "timestamp"],
                         "additionalProperties": false
                       }
                     },
@@ -92,9 +94,10 @@ final class ToolSchemas {
                       "properties": {
                         "responding": {"type": "integer", "minimum": 0},
                         "notResponding": {"type": "integer", "minimum": 0},
-                        "notChecked": {"type": "integer", "minimum": 0}
+                        "notChecked": {"type": "integer", "minimum": 0},
+                        "notInstalled": {"type": "integer", "minimum": 0}
                       },
-                      "required": ["responding", "notResponding", "notChecked"],
+                      "required": ["responding", "notResponding", "notChecked", "notInstalled"],
                       "additionalProperties": false
                     },
                     "note": {"type": "string"}
@@ -113,7 +116,8 @@ final class ToolSchemas {
                     "demo": {"type": "boolean"},
                     "vinMasked": {"type": "boolean"},
                     "module": {"$ref": "#/$defs/module"},
-                    "status": {"enum": ["OK", "FAULTS", "NOT_RESPONDING", "ERROR", "INCOMPLETE", "SKIPPED"]},
+                    "status": {"enum": ["OK", "FAULTS", "NOT_RESPONDING", "ERROR", "INCOMPLETE", "SKIPPED",
+                                        "GATEWAY_STATUS_ONLY"]},
                     "statusDescription": {"type": "string"},
                     "protocol": {"$ref": "#/$defs/protocolOrNull"},
                     "link": {"type": ["string", "null"]},
@@ -165,7 +169,7 @@ final class ToolSchemas {
                         "properties": {
                           "address": {"$ref": "#/$defs/address"},
                           "name": {"type": "string"},
-                          "reachability": {"enum": ["RESPONDING", "NOT_RESPONDING", "NOT_CHECKED"]},
+                          "reachability": {"enum": ["RESPONDING", "NOT_RESPONDING", "NOT_CHECKED", "NOT_INSTALLED"]},
                           "protocol": {"$ref": "#/$defs/protocolOrNull"},
                           "link": {"type": ["string", "null"]},
                           "identification": {"anyOf": [{"$ref": "#/$defs/identification"}, {"type": "null"}]},

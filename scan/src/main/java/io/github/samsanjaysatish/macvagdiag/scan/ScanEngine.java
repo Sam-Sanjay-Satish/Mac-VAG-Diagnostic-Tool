@@ -6,6 +6,7 @@ import io.github.samsanjaysatish.macvagdiag.diag.DiagnosticService;
 import io.github.samsanjaysatish.macvagdiag.diag.Dtc;
 import io.github.samsanjaysatish.macvagdiag.diag.DtcList;
 import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
+import io.github.samsanjaysatish.macvagdiag.diag.InstallationList;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import java.io.UncheckedIOException;
 import java.time.Instant;
@@ -116,7 +117,11 @@ final class ScanEngine implements RequestObserver {
         }
     }
 
-    /** Runs {@code body} with {@code cost} requests reserved; the audit hook allows at most that many. */
+    /**
+     * Runs {@code body} with {@code cost} requests reserved; the audit hook allows at most that many. Afterwards the
+     * part of the reservation that wasn't sent is given back ({@link RequestBudget#refund}), so the per-module count
+     * ({@link ModuleResult#requests()}) and the one-minute window hold the requests really sent.
+     */
     <T> T runReserved(ScanContext ctx, ModuleAddress module, int cost, Reserved<T> body) throws InterruptedException {
         callContext = ctx;
         callModule = module;
@@ -125,6 +130,7 @@ final class ScanEngine implements RequestObserver {
         try {
             return body.run();
         } finally {
+            budget.refund(ctx, module, callReserved - callSent);
             callContext = null;
             callModule = null;
             callReserved = 0;
@@ -213,7 +219,7 @@ final class ScanEngine implements RequestObserver {
                 }
                 waitForGap();
                 try {
-                    connection = connector.connect(link);
+                    connection = connector.connect(module, link);
                     audit.connect(ctx, module, link, attempt, "open", null);
                 } catch (ModuleConnector.ConnectFailedException e) {
                     audit.connect(ctx, module, link, attempt, e.kind().name().toLowerCase(java.util.Locale.ROOT),
@@ -264,6 +270,9 @@ final class ScanEngine implements RequestObserver {
     ModuleResult scanModule(ScanContext ctx, ModuleAddress module) throws InterruptedException {
         requireAdapter(ctx);
         Instant now = time.now();
+        if (!module.hasLink()) {
+            return gatewayOnly(module, now);
+        }
         Optional<java.time.Duration> backoff = health.backoffRemaining(module);
         if (backoff.isPresent()) {
             return new ModuleResult(module, ModuleStatus.NOT_RESPONDING, Optional.empty(), Optional.empty(), List.of(),
@@ -278,6 +287,15 @@ final class ScanEngine implements RequestObserver {
         return readModule(ctx, module, true);
     }
 
+    static final String NO_LINK = "has no diagnostic link of its own: VCDS doesn't contact it either; its status "
+            + "comes from the gateway's installation list only";
+
+    /** The result for a module with no link (04): nothing sent. */
+    static ModuleResult gatewayOnly(ModuleAddress module, Instant at) {
+        return new ModuleResult(module, ModuleStatus.GATEWAY_STATUS_ONLY, Optional.empty(), Optional.empty(), List.of(),
+                false, List.of(module.hex() + " " + NO_LINK), Optional.empty(), 0, at, at);
+    }
+
     static ModuleResult skipped(ModuleAddress module, String why, LimitHit hit, Instant at) {
         return new ModuleResult(module, ModuleStatus.SKIPPED, Optional.empty(), Optional.empty(), List.of(), false,
                 List.of(why), Optional.ofNullable(hit), 0, at, at);
@@ -286,6 +304,9 @@ final class ScanEngine implements RequestObserver {
     /** Opens the module, optionally reads identification, then fault codes and their freeze frames; always closes. */
     ModuleResult readModule(ScanContext ctx, ModuleAddress module, boolean withIdentification) throws InterruptedException {
         Instant started = time.now();
+        if (!module.hasLink()) {
+            return gatewayOnly(module, started);
+        }
         List<String> notes = new ArrayList<>();
         Opened opened;
         try {
@@ -372,8 +393,80 @@ final class ScanEngine implements RequestObserver {
                 Optional.ofNullable(limitHit), ctx.requests(module), started, time.now());
     }
 
+    /**
+     * The outcome of reading the gateway's installation list.
+     *
+     * @param list the decoded list, empty if it couldn't be read
+     * @param note why not, or the list's warnings; readable
+     */
+    record Discovery(Optional<InstallationList> list, Optional<String> note) {
+    }
+
+    /**
+     * Opens the gateway, reads its installation list ({@code 22 04 A1}) and closes the channel again. The requests
+     * are charged to the gateway's budget in this scan. Never throws for what the car does: a gateway that doesn't
+     * answer, refuses or sends nonsense gives an empty list and a note, and the caller probes the fixed list.
+     */
+    Discovery discover(ScanContext ctx) throws InterruptedException {
+        ModuleAddress gateway = ModuleAddress.GATEWAY;
+        Optional<java.time.Duration> backoff = health.backoffRemaining(gateway);
+        if (backoff.isPresent()) {
+            return new Discovery(Optional.empty(), Optional.of(health.lastFailure(gateway) + " (checked moments ago)"));
+        }
+        Opened o;
+        try {
+            o = open(ctx, gateway);
+        } catch (LimitReachedException e) {
+            return new Discovery(Optional.empty(), Optional.of(e.getMessage()));
+        }
+        if (o.session() == null) {
+            String why = noResponse(o.failures());
+            health.markNotResponding(gateway, why);
+            return new Discovery(Optional.empty(), Optional.of("the gateway did not answer: " + why));
+        }
+        ModuleSession s = o.session();
+        try {
+            DiagResult<InstallationList> r = s.call(DiagOp.READ_INSTALLATION_LIST, DiagnosticService::readInstallationList);
+            if (r instanceof DiagResult.Success<InstallationList> ok) {
+                InstallationList list = ok.value();
+                if (list.installed().isEmpty()) {
+                    return new Discovery(Optional.empty(), Optional.of("the gateway's installation list lists no "
+                            + "installed module (" + list.response().hex() + ")"));
+                }
+                return new Discovery(Optional.of(list), list.warnings().isEmpty() ? Optional.empty()
+                        : Optional.of("installation list: " + String.join("; ", list.warnings())));
+            }
+            return new Discovery(Optional.empty(), Optional.of("installation list not read: " + r.message()));
+        } catch (LimitReachedException e) {
+            return new Discovery(Optional.empty(), Optional.of(e.getMessage()));
+        } catch (UncheckedIOException | ScanRefusedException e) {
+            throw e; // audit log broken, or the adapter is gone: stop the whole operation
+        } catch (RuntimeException e) {
+            log.error("Error while reading the gateway's installation list", e);
+            return new Discovery(Optional.empty(), Optional.of("installation list not read: internal error: " + e));
+        } finally {
+            s.close();
+        }
+    }
+
+    /** The gateway's view of {@code e}, as scan's model type. */
+    static GatewayStatus gatewayStatus(InstallationList.Entry e) {
+        GatewayStatus.Kind kind = switch (e.statusKind()) {
+            case OK -> GatewayStatus.Kind.OK;
+            case MALFUNCTION -> GatewayStatus.Kind.MALFUNCTION;
+            case CANNOT_BE_REACHED -> GatewayStatus.Kind.CANNOT_BE_REACHED;
+            case NOT_INSTALLED, OTHER -> GatewayStatus.Kind.OTHER;
+        };
+        return new GatewayStatus(e.address(), ModuleAddress.tryOf(e.address()), e.tp20LogicalAddress(), kind,
+                e.status());
+    }
+
     /** Opens and closes the module: does it answer? */
     ModuleAvailability probe(ScanContext ctx, ModuleAddress module) throws InterruptedException {
+        if (!module.hasLink()) {
+            return new ModuleAvailability(module, ModuleAvailability.Reachability.NOT_CHECKED, Optional.empty(),
+                    module.hex() + " " + NO_LINK, time.now());
+        }
         Optional<java.time.Duration> backoff = health.backoffRemaining(module);
         if (backoff.isPresent()) {
             return new ModuleAvailability(module, ModuleAvailability.Reachability.NOT_RESPONDING, Optional.empty(),
@@ -398,6 +491,10 @@ final class ScanEngine implements RequestObserver {
 
     /** Opens the module and reads its identification. */
     ModuleIdentity identify(ScanContext ctx, ModuleAddress module) throws InterruptedException {
+        if (!module.hasLink()) {
+            return new ModuleIdentity(module, ModuleAvailability.Reachability.NOT_CHECKED, Optional.empty(),
+                    Optional.empty(), List.of(module.hex() + " " + NO_LINK));
+        }
         Optional<java.time.Duration> backoff = health.backoffRemaining(module);
         if (backoff.isPresent()) {
             return new ModuleIdentity(module, ModuleAvailability.Reachability.NOT_RESPONDING, Optional.empty(),

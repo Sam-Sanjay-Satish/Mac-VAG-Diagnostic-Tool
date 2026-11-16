@@ -56,14 +56,24 @@ class RealScanServiceTest {
                     .collect(Collectors.toMap(m -> (String) m.get("address"), m -> (String) m.get("reachability")));
             assertEquals("RESPONDING", reach.get("01"));
             assertEquals("RESPONDING", reach.get("17"));
-            assertEquals("NOT_RESPONDING", reach.get("16"));
+            assertEquals("NOT_RESPONDING", reach.get("2E"), "listed by the gateway, but cannot be reached");
+            assertEquals("NOT_CHECKED", reach.get("04"), "no link of its own: gateway status only");
+            assertEquals(16, reach.size());
             assertEquals(true, modules.get("demo"));
 
             Map<String, Object> engine = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "01")));
             assertEquals("FAULTS", engine.get("status"));
-            assertEquals("UDS", engine.get("protocol"));
-            assertEquals(List.of("P0401", "P2463"), list(engine.get("faults")).stream().map(ToolTesting::map)
+            assertEquals("KWP2000", engine.get("protocol"));
+            assertEquals(List.of("001025", "001025", "009315"), list(engine.get("faults")).stream().map(ToolTesting::map)
                     .map(f -> f.get("code")).toList());
+            assertEquals(List.of("P0401", "P0401", "P2463"), list(engine.get("faults")).stream().map(ToolTesting::map)
+                    .map(f -> f.get("obdCode")).toList());
+
+            Map<String, Object> instruments = ok(tools, "read_fault_codes",
+                    tools.call("read_fault_codes", Map.of("module", "17")));
+            assertEquals("UDS", instruments.get("protocol"));
+            assertEquals(List.of("B1A10-12", "U0115-00"), list(instruments.get("faults")).stream()
+                    .map(ToolTesting::map).map(f -> f.get("id")).toList());
             Map<String, Object> ff = map(map(list(engine.get("faults")).getFirst()).get("freezeFrame"));
             assertEquals("READ", ff.get("availability"));
             assertFalse(list(ff.get("records")).isEmpty(), "raw freeze-frame records with their request IDs");
@@ -132,7 +142,7 @@ class RealScanServiceTest {
     void realServiceModuleThatDoesNotAnswerIsData() {
         try (TestScanServices t = TestScanServices.create()) {
             McpTools tools = new McpTools(t.service(), McpOptions.defaults());
-            Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "46")));
+            Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "2E")));
             assertEquals("NOT_RESPONDING", out.get("status"));
             assertEquals(1, t.auditLines("tool-call").size());
         }

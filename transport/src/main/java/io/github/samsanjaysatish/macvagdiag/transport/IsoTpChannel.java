@@ -17,8 +17,10 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Frames: single {@code 0L}, first {@code 1L LL} (12-bit length), consecutive {@code 2N} (N = 1..F, then 0),
  * flow control {@code 30 BS STmin} (continue) / {@code 31} (wait) / {@code 32} (overflow). Frame formats follow
- * the standard; the VW-specific values in {@link Parameters#DEFAULTS} (padding, our block size and STmin, the
- * timeouts and wait-frame cap) are UNCONFIRMED until checked against the capture.
+ * the standard. Our padding ({@code 55}) and flow control ({@code 30 00 01}) match what VCDS sent on the target car
+ * in the 2026-11-13 capture; the timeouts and wait-frame cap in {@link Parameters#DEFAULTS} are still UNCONFIRMED
+ * (no multi-frame request or wait frame happened in the capture). Received frames may carry any padding (the car's
+ * ECUs pad with {@code AA}) or none.
  */
 final class IsoTpChannel implements RawChannel {
 
@@ -38,6 +40,13 @@ final class IsoTpChannel implements RawChannel {
     static final int CONSECUTIVE_FRAME_DATA_BYTES = 7;
     static final int MAX_MESSAGE_LENGTH = 0xFFF;
 
+    /** Padding of every frame we send: {@code 55}, as VCDS does (2026-11-13 capture). ECUs pad with {@code AA}. */
+    static final int PADDING = 0x55;
+    /** BS in our flow control: 0 = the module sends everything without waiting for another flow control. */
+    static final int OUR_BLOCK_SIZE = 0x00;
+    /** STmin in our flow control: {@code 01} = 1 ms between the module's consecutive frames, as VCDS sends. */
+    static final int OUR_SEPARATION_TIME_MIN = 0x01;
+
     /**
      * Our side's ISO-TP settings.
      *
@@ -52,11 +61,11 @@ final class IsoTpChannel implements RawChannel {
             Duration consecutiveFrameTimeout, int maxWaitFrames) {
 
         /**
-         * UNCONFIRMED: pad with {@code AA} (VW often uses {@code AA} or {@code 55}), our flow control
-         * {@code 30 00 00}, N_Bs and N_Cr 1000 ms (ISO 15765-2 defaults), at most 10 wait frames.
+         * Pad with {@code 55} and send flow control {@code 30 00 01}, as VCDS does on this car (confirmed by the
+         * 2026-11-13 capture). UNCONFIRMED: N_Bs and N_Cr 1000 ms (ISO 15765-2 defaults), at most 10 wait frames.
          */
-        static final Parameters DEFAULTS = new Parameters(0, 0x00, 0xAA, Duration.ofMillis(1000),
-                Duration.ofMillis(1000), 10);
+        static final Parameters DEFAULTS = new Parameters(OUR_BLOCK_SIZE, OUR_SEPARATION_TIME_MIN, PADDING,
+                Duration.ofMillis(1000), Duration.ofMillis(1000), 10);
 
         Parameters {
             Objects.requireNonNull(flowControlTimeout, "flowControlTimeout");

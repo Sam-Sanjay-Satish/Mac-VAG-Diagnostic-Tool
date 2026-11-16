@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 /** One queue, one worker: concurrent callers get their own results, and requests reach the car one at a time. */
 class RequestQueueTest {
 
-    private static final Map<String, Integer> CODE_PER_MODULE = Map.of("03", 0x0522, "17", 0x0414, "19", 0x3F62);
+    private static final Map<String, Integer> CODE_PER_MODULE = Map.of("03", 0x0522, "09", 0x0414, "19", 0x3F62);
 
     private static ScanLimits roomy() {
         return ScanLimits.builder().maxRequestsPerMinute(ScanLimits.REQUESTS_PER_MINUTE_CEILING).build();
@@ -32,7 +32,7 @@ class RequestQueueTest {
         try (TestScanServices t = TestScanServices.create(io.github.samsanjaysatish.macvagdiag.can.FakeTimeSource.autoAdvancing(), roomy())) {
             CODE_PER_MODULE.forEach((m, code) -> t.connector().kwp(m,
                     () -> kwp(new KwpDtc(code, 0x23)).onReadFreezeFrame(new DiagResult.NotAvailable<>("n/a"))));
-            List<String> modules = List.of("03", "17", "19");
+            List<String> modules = List.of("03", "09", "19");
             ExecutorService pool = Executors.newFixedThreadPool(8);
             CountDownLatch start = new CountDownLatch(1);
             List<Future<List<String>>> futures = new ArrayList<>();
@@ -87,7 +87,7 @@ class RequestQueueTest {
                 }
             });
             inScan.await();
-            ModuleResult direct = t.service().readFaultCodes(Caller.mcp("read_fault_codes"), ModuleAddress.parse("17"));
+            ModuleResult direct = t.service().readFaultCodes(Caller.mcp("read_fault_codes"), ModuleAddress.parse("09"));
             AutoScanResult r = job.await();
             assertEquals("01044", direct.faults().getFirst().code());
             assertEquals(3, r.faultCount());

@@ -98,14 +98,27 @@ final class DefaultScanService implements ScanService {
             engine.requireWindowRoom(ctx, null, 1);
             return null;
         });
+        ScanEngine.Discovery discovery = queue.call(() -> {
+            engine.requireAdapter(ctx);
+            return engine.discover(ctx);
+        });
+        Plan plan = Plan.of(discovery);
         List<ModuleAvailability> out = new ArrayList<>();
         for (ModuleAddress m : ModuleAddress.known()) {
-            out.add(queue.call(() -> {
+            Optional<GatewayStatus> gs = plan.gatewayStatus(m);
+            if (plan.fromList() && gs.isEmpty()) {
+                out.add(notInstalled(m));
+                continue;
+            }
+            ModuleAvailability a = queue.call(() -> {
                 engine.requireAdapter(ctx);
                 return engine.probe(ctx, m);
-            }));
+            });
+            out.add(gs.map(a::withGatewayStatus).orElse(a));
         }
-        if (out.stream().noneMatch(a -> a.reachability() == ModuleAvailability.Reachability.NOT_CHECKED)) {
+        // Cached unless a limit stopped a check (04 is always NOT_CHECKED: it has no link to check).
+        if (out.stream().noneMatch(a -> a.reachability() == ModuleAvailability.Reachability.NOT_CHECKED
+                && a.module().hasLink())) {
             engine.health().cacheListing(out);
         }
         return List.copyOf(out);
@@ -159,7 +172,7 @@ final class DefaultScanService implements ScanService {
                 audit.refused(caller, null, null, "scan-in-progress", null, e.getMessage());
                 throw e;
             }
-            job = new AutoScanJob("scan-" + ids.incrementAndGet(), caller, time.now(), ModuleAddress.known().size(),
+            job = new AutoScanJob("scan-" + ids.incrementAndGet(), caller, time.now(), Plan.FIXED_LIST.size(),
                     listener == null ? ScanProgressListener.NONE : listener);
             running = job;
             recent.put(job.id(), job);
@@ -180,9 +193,17 @@ final class DefaultScanService implements ScanService {
                 engine.requireWindowRoom(ctx, null, MIN_FAULT_READ_COST);
                 return null;
             });
-            List<ModuleAddress> known = ModuleAddress.known();
+            ScanEngine.Discovery discovery = ctx.cancelled() ? new ScanEngine.Discovery(Optional.empty(),
+                    Optional.of("cancelled before the installation list was read")) : queue.call(() -> {
+                        engine.requireAdapter(ctx);
+                        return engine.discover(ctx);
+                    });
+            Plan plan = Plan.of(discovery);
+            List<ModuleAddress> known = plan.modules();
             int total = known.size();
-            audit.scan(ctx, "start", total + " modules");
+            job.planned(total);
+            audit.scan(ctx, "start", total + " modules, " + (plan.fromList() ? "from the gateway's installation list"
+                    : "fixed list"));
             job.emit(new ScanEvent.Started(job.id(), total, time.now()));
             List<ModuleResult> results = new ArrayList<>();
             String stopReason = null;
@@ -211,19 +232,23 @@ final class DefaultScanService implements ScanService {
                         stopReason = "Auto-Scan stopped: " + stopLimit.message();
                     }
                 }
+                Optional<GatewayStatus> gs = plan.gatewayStatus(m);
+                if (gs.isPresent()) {
+                    r = r.withGatewayStatus(gs.get());
+                }
                 results.add(r);
                 job.emit(new ScanEvent.ModuleFinished(job.id(), i + 1, total, r, time.now()));
             }
-            List<String> notes = new ArrayList<>();
+            List<String> notes = new ArrayList<>(plan.notes());
             if (stopReason != null) {
                 notes.add(stopReason);
             }
             Optional<ModuleResult> withVin = vinSource(results);
             AutoScanResult result = new AutoScanResult(job.id(), job.caller(), job.startedAt(), time.now(),
                     withVin.flatMap(m -> m.identification().flatMap(EcuInfo::vin)), withVin.map(ModuleResult::module),
-                    results, ctx.cancelled(), demo, notes);
+                    results, ctx.cancelled(), demo, notes, plan.installationList());
             if (!result.cancelled() && stopReason == null) {
-                engine.health().cacheListing(results.stream().map(this::availability).toList());
+                engine.health().cacheListing(listing(results, plan));
             }
             audit.scan(ctx, "finish", result.respondingModules().size() + " responding, " + result.faultCount()
                     + " fault code(s)" + (result.cancelled() ? ", cancelled" : ""));
@@ -253,10 +278,89 @@ final class DefaultScanService implements ScanService {
     }
 
     private ModuleAvailability availability(ModuleResult r) {
-        return new ModuleAvailability(r.module(), r.responded() ? ModuleAvailability.Reachability.RESPONDING
-                : ModuleAvailability.Reachability.NOT_RESPONDING, r.link(),
+        ModuleAvailability.Reachability reach = r.responded() ? ModuleAvailability.Reachability.RESPONDING
+                : r.status() == ModuleStatus.GATEWAY_STATUS_ONLY ? ModuleAvailability.Reachability.NOT_CHECKED
+                : ModuleAvailability.Reachability.NOT_RESPONDING;
+        return new ModuleAvailability(r.module(), reach, r.link(),
                 r.responded() ? "responds on " + r.link().map(ModuleLink::describe).orElse("?")
-                        : String.join("; ", r.notes()), r.finishedAt());
+                        : String.join("; ", r.notes()), r.finishedAt(), r.gatewayStatus());
+    }
+
+    private ModuleAvailability notInstalled(ModuleAddress m) {
+        return new ModuleAvailability(m, ModuleAvailability.Reachability.NOT_INSTALLED, Optional.empty(),
+                "not installed: the gateway's installation list doesn't list it; not contacted", time.now());
+    }
+
+    /** What {@link #listModules} would say after this Auto-Scan: every known module, scanned or not installed. */
+    private List<ModuleAvailability> listing(List<ModuleResult> results, Plan plan) {
+        List<ModuleAvailability> out = new ArrayList<>();
+        for (ModuleAddress m : ModuleAddress.known()) {
+            Optional<ModuleResult> r = results.stream().filter(x -> x.module().equals(m)).findFirst();
+            out.add(r.map(this::availability).orElseGet(() -> notInstalled(m)));
+        }
+        return out;
+    }
+
+    /**
+     * Which modules a scan contacts. With the gateway's installation list: the known modules it lists as
+     * installed, in address order (04 included, answered from the list alone), plus notes for listed modules our
+     * table doesn't have. Without it: every known module with a link (VCDS's own fallback is the same idea).
+     *
+     * @param modules the modules to check, in address order
+     * @param installationList the gateway's status of every installed module, in list order (empty without a list)
+     * @param notes readable notes for the scan
+     */
+    record Plan(List<ModuleAddress> modules, List<GatewayStatus> installationList, List<String> notes) {
+
+        /** Every known module that can be contacted: the fallback. */
+        static final List<ModuleAddress> FIXED_LIST = ModuleAddress.known().stream().filter(ModuleAddress::hasLink)
+                .toList();
+
+        Plan {
+            modules = List.copyOf(modules);
+            installationList = List.copyOf(installationList);
+            notes = List.copyOf(notes);
+        }
+
+        static Plan of(ScanEngine.Discovery d) {
+            List<String> notes = new ArrayList<>();
+            if (d.list().isEmpty()) {
+                notes.add("module list: the gateway's installation list was not read ("
+                        + d.note().orElse("no reason given") + "); probed every known module instead");
+                return new Plan(FIXED_LIST, List.of(), notes);
+            }
+            d.note().ifPresent(notes::add);
+            List<GatewayStatus> listed = new ArrayList<>();
+            for (io.github.samsanjaysatish.macvagdiag.diag.InstallationList.Entry e : d.list().get().installed()) {
+                GatewayStatus gs = ScanEngine.gatewayStatus(e);
+                listed.add(gs);
+                if (gs.module().isEmpty()) {
+                    notes.add(String.format("the gateway lists module %s (%s) as installed, but it isn't in our "
+                            + "module table, so it was not scanned", gs.hex(), gs.vcdsText()));
+                    continue;
+                }
+                ModuleAddress m = gs.module().get();
+                for (ModuleLink link : m.links()) {
+                    if (link instanceof ModuleLink.Tp20 t && e.tp20Address().isPresent()
+                            && e.tp20Address().get() != t.logicalAddress()) {
+                        notes.add(String.format("the gateway lists %s at TP 2.0 address %02X, our table has %02X; "
+                                + "using ours", m.hex(), e.tp20LogicalAddress(), t.logicalAddress()));
+                    }
+                }
+            }
+            List<ModuleAddress> modules = ModuleAddress.known().stream()
+                    .filter(m -> listed.stream().anyMatch(gs -> gs.module().equals(Optional.of(m)))).toList();
+            notes.add(0, "module list: from the gateway's installation list (" + listed.size() + " installed)");
+            return new Plan(modules, listed, notes);
+        }
+
+        boolean fromList() {
+            return !installationList.isEmpty();
+        }
+
+        Optional<GatewayStatus> gatewayStatus(ModuleAddress m) {
+            return installationList.stream().filter(gs -> gs.module().equals(Optional.of(m))).findFirst();
+        }
     }
 
     @Override

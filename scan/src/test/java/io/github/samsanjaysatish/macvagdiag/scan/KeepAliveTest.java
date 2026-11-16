@@ -23,9 +23,16 @@ import org.junit.jupiter.api.Test;
  */
 class KeepAliveTest {
 
-    /** Back-offs of 1.5 s and 3 s, so the idle time crosses both intervals (keep-alive 1 s, Tester Present 2 s). */
+    /** A KWP2000 module over TP 2.0 (09 Central Electrics). */
+    private static final ModuleAddress BCM = ModuleAddress.parse("09");
+
+    /**
+     * Back-offs of 1.5 s and 3 s, so the idle time crosses both intervals, pinned here to keep-alive 1 s and Tester
+     * Present 2 s so the timelines below read easily (the defaults are tested in {@link #defaultsFollowVcds}).
+     */
     private static final ScanLimits LONG_BACKOFF = ScanLimits.builder().initialBackoff(Duration.ofMillis(1500))
-            .maxBackoff(Duration.ofSeconds(4)).connectAttempts(1).build();
+            .maxBackoff(Duration.ofSeconds(4)).connectAttempts(1).channelKeepAliveInterval(Duration.ofSeconds(1))
+            .testerPresentInterval(Duration.ofSeconds(2)).build();
 
     private static FakeDiagnosticService busyBusyOk(FakeDiagnosticService base, int sid) {
         return base.onReadDtcs(busy(sid)).onReadDtcs(busy(sid)).onReadDtcs(ok(FakeDiagnosticService.dtcList()))
@@ -41,11 +48,11 @@ class KeepAliveTest {
     }
 
     @Test
-    @DisplayName("KWP over TP 2.0: A3 keep-alive every 1 s idle and 3E every 2 s idle during back-off, nothing after close")
+    @DisplayName("KWP over TP 2.0: A3 keep-alive every 1 s idle during back-off, no KWP 3E (VCDS sends none), nothing after close")
     void kwpKeepAliveAndTesterPresent() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create(FakeTimeSource.autoAdvancing(), LONG_BACKOFF)) {
-            t.connector().kwp("17", () -> busyBusyOk(FakeDiagnosticService.kwp().onStartSession(okHex("50 89")), 0x18));
-            assertEquals(ModuleStatus.OK, t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS).status());
+            t.connector().kwp("09", () -> busyBusyOk(FakeDiagnosticService.kwp().onStartSession(okHex("50 89")), 0x18));
+            assertEquals(ModuleStatus.OK, t.service().readFaultCodes(Caller.web(), BCM).status());
             assertEquals(List.of(
                     "0 connect",
                     "100 START_SESSION",
@@ -53,17 +60,46 @@ class KeepAliveTest {
                     "1200 keep-alive",       // 1 s idle
                     "1700 READ_DTCS",        // busy: back-off 3 s
                     "2700 keep-alive",
-                    "3700 keep-alive",
-                    "3700 TESTER_PRESENT",   // 2 s since the last request
+                    "3700 keep-alive",       // 2 s since the last request: still no 3E on TP 2.0
                     "4700 keep-alive",       // due as the back-off ends; then the 100 ms gap
                     "4800 READ_DTCS",
-                    "4800 close"), timeline(t.connector(), "17"));
+                    "4800 close"), timeline(t.connector(), "09"));
             int events = t.connector().events().size();
             t.time().advance(Duration.ofSeconds(30));
             assertEquals(events, t.connector().events().size(), "no keep-alive after the session closed");
             assertEquals(0, t.connector().openConnections());
             assertTrue(t.auditLines("keep-alive").size() == 4 && t.auditLines("keep-alive").getFirst().contains("\"alive\":true"));
-            assertTrue(t.auditLines("result").stream().anyMatch(l -> l.contains("\"operation\":\"testerPresent\"")));
+            assertTrue(t.auditLines("result").stream().noneMatch(l -> l.contains("\"operation\":\"testerPresent\"")));
+            assertEquals(0, t.connector().count("09", "TESTER_PRESENT"));
+        }
+    }
+
+    @Test
+    @DisplayName("defaults follow VCDS on the capture: A3 after 500 ms idle on TP 2.0 and nothing else; Tester Present 1.5 s is for UDS")
+    void defaultsFollowVcds() throws InterruptedException {
+        assertEquals(Duration.ofMillis(500), ScanLimits.DEFAULTS.channelKeepAliveInterval());
+        assertEquals(Duration.ofMillis(1500), ScanLimits.DEFAULTS.testerPresentInterval());
+        ScanLimits limits = ScanLimits.builder().initialBackoff(Duration.ofMillis(1500)).connectAttempts(1).build();
+        try (TestScanServices t = TestScanServices.create(FakeTimeSource.autoAdvancing(), limits)) {
+            t.connector().kwp("09", () -> busyBusyOk(FakeDiagnosticService.kwp().onStartSession(okHex("50 89")), 0x18));
+            ModuleResult r = t.service().readFaultCodes(Caller.web(), BCM);
+            assertEquals(ModuleStatus.OK, r.status(), r.notes() + " " + timeline(t.connector(), "09"));
+            assertEquals(List.of(
+                    "0 connect",
+                    "100 START_SESSION",
+                    "200 READ_DTCS",         // busy: back-off 1.5 s
+                    "700 keep-alive",        // 500 ms idle
+                    "1200 keep-alive",
+                    "1700 keep-alive",       // due as the back-off ends; then the 100 ms gap. No 3E: A3 only
+                    "1800 READ_DTCS",        // busy: back-off 3 s
+                    "2300 keep-alive",
+                    "2800 keep-alive",
+                    "3300 keep-alive",
+                    "3800 keep-alive",
+                    "4300 keep-alive",
+                    "4800 keep-alive",
+                    "4900 READ_DTCS",
+                    "4900 close"), timeline(t.connector(), "09"));
         }
     }
 
@@ -71,8 +107,8 @@ class KeepAliveTest {
     @DisplayName("UDS over ISO-TP: Tester Present only (ISO-TP has no transport keep-alive)")
     void udsTesterPresentOnly() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create(FakeTimeSource.autoAdvancing(), LONG_BACKOFF)) {
-            t.connector().uds("01", () -> busyBusyOk(Scripts.uds(), 0x19));
-            t.service().readFaultCodes(Caller.web(), ModuleAddress.ENGINE);
+            t.connector().uds("17", () -> busyBusyOk(Scripts.uds(), 0x19));
+            t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS);
             assertEquals(List.of(
                     "0 connect",
                     "100 START_SESSION",
@@ -80,7 +116,7 @@ class KeepAliveTest {
                     "1700 READ_DTCS",
                     "3700 TESTER_PRESENT",
                     "4700 READ_DTCS",
-                    "4700 close"), timeline(t.connector(), "01"));
+                    "4700 close"), timeline(t.connector(), "17"));
         }
     }
 
@@ -89,10 +125,10 @@ class KeepAliveTest {
     void noTesterPresentWhenBusy() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create()) {
             t.connector().callDuration(Duration.ofMillis(900));
-            t.connector().kwp("17", () -> Scripts.kwpScan("x"));
+            t.connector().kwp("09", () -> Scripts.kwpScan("x"));
             t.service().autoScan(Caller.web(), null);
-            assertEquals(0, t.connector().count("17", "TESTER_PRESENT"));
-            assertEquals(0, t.connector().count("17", "keep-alive"));
+            assertEquals(0, t.connector().count("09", "TESTER_PRESENT"));
+            assertEquals(0, t.connector().count("09", "keep-alive"));
         }
     }
 
@@ -100,12 +136,12 @@ class KeepAliveTest {
     @DisplayName("a failed TP 2.0 keep-alive ends the session: nothing more is sent, the module is not responding")
     void failedKeepAlive() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create(FakeTimeSource.autoAdvancing(), LONG_BACKOFF)) {
-            t.connector().kwp("17", () -> busyBusyOk(FakeDiagnosticService.kwp().onStartSession(okHex("50 89")), 0x18));
-            t.connector().keepAliveFails("17");
-            ModuleResult r = t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS);
+            t.connector().kwp("09", () -> busyBusyOk(FakeDiagnosticService.kwp().onStartSession(okHex("50 89")), 0x18));
+            t.connector().keepAliveFails("09");
+            ModuleResult r = t.service().readFaultCodes(Caller.web(), BCM);
             assertEquals(ModuleStatus.NOT_RESPONDING, r.status());
             assertTrue(r.notes().stream().anyMatch(n -> n.contains("no answer to the TP 2.0 keep-alive")), r.notes().toString());
-            assertEquals(1, t.connector().count("17", "READ_DTCS"));
+            assertEquals(1, t.connector().count("09", "READ_DTCS"));
             assertEquals(0, t.connector().openConnections());
             assertTrue(t.auditLines("keep-alive").getFirst().contains("\"alive\":false"));
         }
@@ -115,11 +151,11 @@ class KeepAliveTest {
     @DisplayName("an exception from diag: the module is reported as an error and its channel is closed")
     void errorClosesSession() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create()) {
-            t.connector().kwp("17", () -> FakeDiagnosticService.kwp().onStartSession(okHex("50 89"))); // 18 02 unscripted
-            ModuleResult r = t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS);
+            t.connector().kwp("09", () -> FakeDiagnosticService.kwp().onStartSession(okHex("50 89"))); // 18 02 unscripted
+            ModuleResult r = t.service().readFaultCodes(Caller.web(), BCM);
             assertEquals(ModuleStatus.ERROR, r.status());
             assertTrue(r.notes().getFirst().startsWith("internal error"), r.notes().toString());
-            assertEquals(List.of("connect", "START_SESSION", "READ_DTCS", "close"), t.connector().whats("17"));
+            assertEquals(List.of("connect", "START_SESSION", "READ_DTCS", "close"), t.connector().whats("09"));
             assertEquals(1, t.auditLines("close").size());
         }
     }
@@ -129,10 +165,10 @@ class KeepAliveTest {
     void interruptionClosesSession() throws Exception {
         FakeTimeSource clock = new FakeTimeSource();
         TestScanServices t = TestScanServices.create(clock, ScanLimits.DEFAULTS);
-        t.connector().kwp("17", () -> Scripts.kwp());
+        t.connector().kwp("09", () -> Scripts.kwp());
         CompletableFuture<ModuleResult> call = CompletableFuture.supplyAsync(() -> {
             try {
-                return t.service().readFaultCodes(Caller.web(), ModuleAddress.INSTRUMENTS);
+                return t.service().readFaultCodes(Caller.web(), BCM);
             } catch (InterruptedException e) {
                 throw new IllegalStateException(e);
             }
@@ -144,6 +180,6 @@ class KeepAliveTest {
         ScanRefusedException refused = (ScanRefusedException) e.getCause();
         assertEquals(ScanRefusedException.Reason.SERVICE_CLOSED, refused.reason());
         assertEquals(0, t.connector().openConnections());
-        assertEquals(List.of("connect", "close"), t.connector().whats("17"));
+        assertEquals(List.of("connect", "close"), t.connector().whats("09"));
     }
 }
