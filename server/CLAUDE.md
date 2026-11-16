@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** v1 built and tested without hardware (93 tests, `./gradlew :server:build` green; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: a `ReplayAdapter` demo once a VIN-masked capture exists, and the manual hardware run. **Package:** `io.github.samsanjaysatish.macvagdiag.server`
+**Status:** v1 built and tested without hardware (93 tests, `./gradlew :server:build` green; `bootRun --demo` checked by hand on 127.0.0.1:8080). MCP mounted at `/mcp`. Pending: a `ReplayAdapter` demo once a VIN-masked capture exists (the raw capture exists since 2026-11-13; it needs `tools`' fixture sanitizer first), and the manual hardware run. **Package:** `io.github.samsanjaysatish.macvagdiag.server`
 **Depends on:** `scan` + Spring Boot 4.1.2 (`spring-boot-starter-webmvc`; approved by the user 2026-10-22; BOM via `platform(libs.spring.boot.bom)`, no dependency-management plugin). Tests: `spring-boot-starter-test`, `spring-boot-starter-webmvc-test`, scan's test fixtures. **Used by:** nobody; this is the app.
 
 ## Purpose
@@ -22,7 +22,7 @@ Then open http://localhost:8080. Other flags go in `--args` the same way (`--ser
 | `macvagdiag.demo` | `false` | Demo car instead of the CANable. `--demo` does the same. |
 | `macvagdiag.port` | empty | CANable serial port. Empty: auto-detect (`/dev/cu.usbmodem*` with USB ID `16D0:117E`), re-checked every 2 s on calls until one is plugged in. Other usbmodem devices are never picked automatically. |
 | `macvagdiag.audit-log` | empty | Audit log path. Empty: `~/Library/Application Support/macvagdiag/audit.jsonl` (scan's default). |
-| `macvagdiag.bits-per-second` | `0` | Diagnostic CAN speed; 0 = 500000 (UNCONFIRMED). |
+| `macvagdiag.bits-per-second` | `0` | Diagnostic CAN speed; 0 = 500000 (confirmed on the car 2026-11-13). |
 | `server.address` | `127.0.0.1` | Must be loopback: startup fails otherwise (`LoopbackOnlyConfiguration`). |
 | `server.port` | `8080` | |
 

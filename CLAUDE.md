@@ -9,7 +9,7 @@ An open-source, read-only VW/VAG diagnostic tool in Java that runs on macOS and 
 - **AI access:** an MCP server lets AI agents read data and decide on further tests. Read-only, no exceptions.
 - **Later:** live measuring blocks (v2), labels/descriptions, `.app` packaging.
 
-Target car: 2013 VW Jetta TDI (CJAA, DSG), engine ECU 03L 997 030 M (EDC17). Diagnostic CAN on OBD pins 6/14, expected 500 kbit/s.
+Target car: 2013 VW Jetta TDI (CJAA, DSG), engine ECU 03L 997 030 M (EDC17). Diagnostic CAN on OBD pins 6/14 at 500 kbit/s (confirmed by the 2026-11-13 sniffing session). On this car the engine talks **TP 2.0 + KWP2000**, not UDS; most modules are TP 2.0, six are ISO-TP + UDS (table in `scan/CLAUDE.md`).
 
 ## Safety rules (hard, enforced in code)
 These cannot be relaxed by a prompt, a tool argument, a config flag or a test helper.
@@ -107,7 +107,7 @@ How VCDS does it, from Ross-Tech's documentation. It is reference for designing 
 - Build one layer at a time, bottom-up. Don't stub ahead into higher layers.
 - Commands: `./gradlew build`, `./gradlew :can-core:test`. Always use the wrapper (Gradle 9.8.2), never a system Gradle.
 - Compiler runs with `-Xlint:all -Werror`: fix warnings, don't suppress them without a reason in a comment.
-- Don't commit or push unless the user asks. The remote is `origin` → GitHub `Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`.
+- Don't commit or push unless the user asks. When asked, commit directly on `main` (no feature branches), with a lowercase one-line summary like the existing history and no co-author or tool trailers. The remote is `origin` → GitHub `Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`.
 
 ## Open questions (don't decide these silently)
 - Source of fault-code descriptions and labels (not being worked on yet). Must be legally reusable in an MIT repo; Ross-Tech's `.LBL` files are not. See "Label files" above for how VCDS keys and redirects them.

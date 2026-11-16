@@ -67,6 +67,10 @@ Requires JDK 25. `./gradlew :tools:run` uses the Gradle toolchain automatically.
 - The first Auto-Scan gave 0 frames because the CANable's wires, pushed into the splitter's female socket, weren't touching the contacts. A proper OBD plug (pigtail) fixed it. Check for frames within ~20 s of VCDS starting before letting a scan run.
 - VCDS's own clock was wrong, which only affects the VCDS log header and its UDS freeze-frame dates; captures are timed by the Mac.
 - Measuring blocks (step 3) weren't captured.
+- This Mac's default `java` is 21, so the installed script fails with `UnsupportedClassVersionError` unless `JAVA_HOME` points at JDK 25 (the one Gradle provisioned: `~/.gradle/jdks/eclipse_adoptium-25-aarch64-os_x.2/jdk-25.0.4.1+1/Contents/Home`).
+- Wiring check with a multimeter (ignition off): 50–130 Ω between `H` and `L` at the CANable's screw terminals means it's on the bus; open means it isn't. Probe tips don't reach the contacts in an OBD female socket either, so measure at the plug or the screws.
+- Bench check repeated 2026-11-13 before the session: passed (`local/captures/bench-2026-11-13-check.log`). `capture-info` exits 1 with "no frames" on an empty bench capture; that's expected.
+- A logger started in the background can be stopped with `kill -INT <pid>` (same shutdown path as Ctrl-C, exit code 130, file flushed and closed).
 
 ## Done when
 A full VCDS Auto-Scan has been captured from the car, checked with `capture-info`, and saved in `local/` next to the matching VCDS log.
