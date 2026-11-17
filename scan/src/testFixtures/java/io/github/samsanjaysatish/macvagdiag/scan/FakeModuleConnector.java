@@ -10,6 +10,7 @@ import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
 import io.github.samsanjaysatish.macvagdiag.diag.FakeDiagnosticService;
 import io.github.samsanjaysatish.macvagdiag.diag.FreezeFrame;
 import io.github.samsanjaysatish.macvagdiag.diag.InstallationList;
+import io.github.samsanjaysatish.macvagdiag.diag.Odometer;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import java.time.Duration;
@@ -352,6 +353,11 @@ public final class FakeModuleConnector implements ModuleConnector {
         @Override
         public DiagResult<InstallationList> readInstallationList() {
             return call("READ_INSTALLATION_LIST", fake::readInstallationList);
+        }
+
+        @Override
+        public DiagResult<Odometer> readOdometer() {
+            return call("READ_ODOMETER", fake::readOdometer);
         }
     }
 }

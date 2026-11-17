@@ -6,11 +6,13 @@ import io.github.samsanjaysatish.macvagdiag.diag.DtcList;
 import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
 import io.github.samsanjaysatish.macvagdiag.diag.FreezeFrame;
 import io.github.samsanjaysatish.macvagdiag.diag.KwpDtc;
+import io.github.samsanjaysatish.macvagdiag.diag.Odometer;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import io.github.samsanjaysatish.macvagdiag.diag.RawRecord;
 import io.github.samsanjaysatish.macvagdiag.diag.UdsDtc;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
 import io.github.samsanjaysatish.macvagdiag.transport.Response;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -34,7 +36,13 @@ final class DiagMapper {
 
     static EcuInfo ecuInfo(EcuIdentification id) {
         return new EcuInfo(protocol(id.protocol()), id.partNumber(), id.softwareVersion(), id.hardwareNumber(),
-                id.systemName(), id.coding(), id.vin(), id.records().stream().map(DiagMapper::raw).toList(), id.notes());
+                id.systemName(), id.coding(), id.records().stream().map(DiagMapper::raw).toList(), id.notes());
+    }
+
+    static Mileage mileage(Odometer odometer, ModuleAddress source, Instant readAt) {
+        RawBytes r = odometer.response();
+        return new Mileage(odometer.kilometres(), source,
+                new RawValue("22 22 03", r.hex(), r.asciiText()), readAt);
     }
 
     static FaultCode faultCode(Dtc dtc, FreezeFrameData freezeFrame) {

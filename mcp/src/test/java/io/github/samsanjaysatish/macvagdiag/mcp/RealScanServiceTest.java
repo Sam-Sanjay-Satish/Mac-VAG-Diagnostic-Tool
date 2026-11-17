@@ -28,7 +28,6 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class RealScanServiceTest {
 
-    private static final String DEMO_VIN = "DEMOVIN0000000000";
 
     @TempDir
     Path dir;
@@ -45,7 +44,7 @@ class RealScanServiceTest {
     @Test
     void demoCarThroughEveryTool() throws Exception {
         try (ScanService scan = demo()) {
-            McpTools tools = new McpTools(scan, McpOptions.defaults());
+            McpTools tools = new McpTools(scan);
 
             Map<String, Object> status = ok(tools, "get_session_status", tools.call("get_session_status", Map.of()));
             assertEquals("CONNECTED", map(status.get("adapter")).get("value"));
@@ -84,8 +83,9 @@ class RealScanServiceTest {
 
             var infoResult = tools.call("get_vehicle_info", Map.of());
             Map<String, Object> info = ok(tools, "get_vehicle_info", infoResult);
-            assertEquals("DEMOVIN0000******", map(info.get("vin")).get("value"));
-            assertFalse(ToolTesting.text(infoResult).contains(DEMO_VIN));
+            assertEquals(123450, ((Number) map(info.get("mileage")).get("value")).intValue(), "the demo car's odometer");
+            assertEquals("17", map(info.get("mileage")).get("source"));
+            assertFalse(ToolTesting.text(infoResult).contains("VIN"));
         }
         List<String> audit = auditLines();
         for (String tool : ToolListTest.EXPECTED) {
@@ -99,19 +99,9 @@ class RealScanServiceTest {
     }
 
     @Test
-    void demoVinUnmaskedWhenTheUserSaysSo() {
-        try (ScanService scan = demo()) {
-            McpTools tools = new McpTools(scan, new McpOptions(false));
-            Map<String, Object> info = ok(tools, "get_vehicle_info", tools.call("get_vehicle_info", Map.of()));
-            assertEquals(DEMO_VIN, map(info.get("vin")).get("value"));
-            assertEquals("01", map(info.get("vin")).get("source"), "the first module asked that reports one");
-        }
-    }
-
-    @Test
     void rejectedCallIsAuditedAndSendsNothing() throws Exception {
         try (ScanService scan = demo()) {
-            McpTools tools = new McpTools(scan, McpOptions.defaults());
+            McpTools tools = new McpTools(scan);
             error(tools.call("read_fault_codes", Map.of("module", "01", "request", "14 FF FF FF")));
             error(tools.call("read_fault_codes", Map.of("module", "5A")));
         }
@@ -126,7 +116,7 @@ class RealScanServiceTest {
     void realServiceWithoutAdapterRefusesWithAMessageForTheModel() {
         try (TestScanServices t = TestScanServices.create()) {
             t.connector().adapterConnected(false, "unplugged");
-            McpTools tools = new McpTools(t.service(), McpOptions.defaults());
+            McpTools tools = new McpTools(t.service());
 
             Map<String, Object> status = ok(tools, "get_session_status", tools.call("get_session_status", Map.of()));
             assertEquals("DISCONNECTED", map(status.get("adapter")).get("value"));
@@ -141,7 +131,7 @@ class RealScanServiceTest {
     @Test
     void realServiceModuleThatDoesNotAnswerIsData() {
         try (TestScanServices t = TestScanServices.create()) {
-            McpTools tools = new McpTools(t.service(), McpOptions.defaults());
+            McpTools tools = new McpTools(t.service());
             Map<String, Object> out = ok(tools, "read_fault_codes", tools.call("read_fault_codes", Map.of("module", "2E")));
             assertEquals("NOT_RESPONDING", out.get("status"));
             assertEquals(1, t.auditLines("tool-call").size());

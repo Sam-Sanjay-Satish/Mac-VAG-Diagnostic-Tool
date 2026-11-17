@@ -7,6 +7,7 @@ import io.github.samsanjaysatish.macvagdiag.diag.Dtc;
 import io.github.samsanjaysatish.macvagdiag.diag.DtcList;
 import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
 import io.github.samsanjaysatish.macvagdiag.diag.InstallationList;
+import io.github.samsanjaysatish.macvagdiag.diag.Odometer;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import java.io.UncheckedIOException;
 import java.time.Instant;
@@ -287,6 +288,12 @@ final class ScanEngine implements RequestObserver {
         return readModule(ctx, module, true);
     }
 
+    /**
+     * The module whose odometer is read ({@code 22 22 03}), in an Auto-Scan and for {@code vehicleInfo}: 17
+     * Instruments, the only module VCDS asked on the 2026-11-13 capture.
+     */
+    static final ModuleAddress ODOMETER_MODULE = ModuleAddress.INSTRUMENTS;
+
     static final String NO_LINK = "has no diagnostic link of its own: VCDS doesn't contact it either; its status "
             + "comes from the gateway's installation list only";
 
@@ -323,6 +330,7 @@ final class ScanEngine implements RequestObserver {
         }
         ModuleSession s = opened.session();
         Optional<EcuInfo> identification = Optional.empty();
+        Optional<Mileage> mileage = Optional.empty();
         List<FaultCode> faults = new ArrayList<>();
         boolean complete = false;
         LimitHit limitHit = null;
@@ -337,6 +345,9 @@ final class ScanEngine implements RequestObserver {
                     identification = Optional.of(DiagMapper.ecuInfo(ok.value()));
                 } else {
                     notes.add("identification not read: " + r.message());
+                }
+                if (!ctx.cancelled()) {
+                    mileage = readMileage(s, module, notes);
                 }
             }
             if (ctx.cancelled()) {
@@ -390,7 +401,21 @@ final class ScanEngine implements RequestObserver {
             notes.add("module " + s.abandonReason());
         }
         return new ModuleResult(module, status, Optional.of(s.link()), identification, faults, complete, notes,
-                Optional.ofNullable(limitHit), ctx.requests(module), started, time.now());
+                Optional.ofNullable(limitHit), ctx.requests(module), started, time.now(), Optional.empty(), mileage);
+    }
+
+    /** The odometer, read on {@code s} if {@code module} is {@link #ODOMETER_MODULE}; a failure is noted. */
+    private Optional<Mileage> readMileage(ModuleSession s, ModuleAddress module, List<String> notes)
+            throws InterruptedException, LimitReachedException {
+        if (!module.equals(ODOMETER_MODULE)) {
+            return Optional.empty();
+        }
+        DiagResult<Odometer> r = s.call(DiagOp.READ_ODOMETER, DiagnosticService::readOdometer);
+        if (r instanceof DiagResult.Success<Odometer> ok) {
+            return Optional.of(DiagMapper.mileage(ok.value(), module, time.now()));
+        }
+        notes.add("mileage not read: " + r.message());
+        return Optional.empty();
     }
 
     /**
@@ -515,13 +540,17 @@ final class ScanEngine implements RequestObserver {
         }
         ModuleSession s = o.session();
         try {
+            List<String> notes = new ArrayList<>();
+            Optional<EcuInfo> identification = Optional.empty();
             DiagResult<EcuIdentification> r = s.call(DiagOp.READ_IDENTIFICATION, DiagnosticService::readIdentification);
             if (r instanceof DiagResult.Success<EcuIdentification> ok) {
-                return new ModuleIdentity(module, ModuleAvailability.Reachability.RESPONDING, Optional.of(s.link()),
-                        Optional.of(DiagMapper.ecuInfo(ok.value())), List.of());
+                identification = Optional.of(DiagMapper.ecuInfo(ok.value()));
+            } else {
+                notes.add("identification not read: " + r.message());
             }
+            Optional<Mileage> mileage = readMileage(s, module, notes);
             return new ModuleIdentity(module, ModuleAvailability.Reachability.RESPONDING, Optional.of(s.link()),
-                    Optional.empty(), List.of("identification not read: " + r.message()));
+                    identification, notes, mileage);
         } catch (LimitReachedException e) {
             return new ModuleIdentity(module, ModuleAvailability.Reachability.RESPONDING, Optional.of(s.link()),
                     Optional.empty(), List.of(e.getMessage()));

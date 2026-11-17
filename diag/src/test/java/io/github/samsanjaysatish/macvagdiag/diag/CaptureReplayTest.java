@@ -284,7 +284,7 @@ class CaptureReplayTest {
     }
 
     @Test
-    @DisplayName("what VCDS never asked: 1A 90 (VIN) on the KWP modules, F190 on the UDS modules; 03/09/19 DIDs from the multi-DID read")
+    @DisplayName("we ask nothing VCDS didn't (no VIN read since 2026-11-17); 03/09/19 DIDs come from the multi-DID read")
     void requestsTheCaptureNeverSaw() throws InterruptedException {
         Map<String, List<String>> unseen = new LinkedHashMap<>();
         Map<String, List<String>> derived = new LinkedHashMap<>();
@@ -301,20 +301,25 @@ class CaptureReplayTest {
         }
         assertEquals(Map.of("03", List.of("22 F1 87", "22 F1 89", "22 F1 91"), "09", List.of("22 F1 87", "22 F1 89", "22 F1 91"),
                 "19", List.of("22 F1 89")), derived, "VCDS read these only inside 22 F1 87 F1 89 F1 91 F1 A3 F1 A5 F1 DF");
-        List<String> uds = List.of("22 F1 90 -> 7F 22 31");
-        List<String> kwpVin = List.of("1A 90 -> 7F 1A 12");
-        Map<String, List<String>> expected = new LinkedHashMap<>();
-        expected.put("01", kwpVin);
-        expected.put("02", kwpVin);
-        expected.put("05", uds);
-        expected.put("08", kwpVin);
-        expected.put("15", uds);
-        expected.put("17", uds);
-        expected.put("25", uds);
-        expected.put("2B", uds);
-        expected.put("44", kwpVin);
-        expected.put("77", uds);
-        assertEquals(expected, unseen);
+        assertEquals(Map.of(), unseen);
         assertInstanceOf(DiagResult.Success.class, read("17").session());
+    }
+
+    @Test
+    @DisplayName("17 Instruments 22 22 03 -> 62 22 03 8F 14: 366280 km, VCDS's header mileage")
+    void odometerFromTheInstruments() throws InterruptedException {
+        FakeTimeSource time = FakeTimeSource.autoAdvancing();
+        CaptureEcu ecu = CaptureEcu.of(RealCaptures.autoScan());
+        SimulatedAdapter adapter = new SimulatedAdapter(time, ecu);
+        adapter.open(Bitrate.KBIT_500, AdapterMode.NORMAL);
+        try (DiagnosticChannel ch = ChannelFactory.create(adapter, time).open(ROUTES.get("17"))) {
+            DiagnosticService diag = DiagnosticService.forChannel(ch, time);
+            ok(diag.startSession(DiagnosticSession.UDS_EXTENDED), "17 session");
+            Odometer odometer = ok(diag.readOdometer(), "17 odometer");
+            assertEquals(SCAN.mileageKm().orElseThrow(), odometer.kilometres());
+            assertEquals(RawBytes.ofHex("62 22 03 8F 14"), odometer.response());
+        }
+        assertEquals(List.of(), ecu.unseen().stream().map(x -> x.request()).toList(), "VCDS sent 22 22 03 too");
+        assertEquals(List.of(), ecu.protocolErrors());
     }
 }

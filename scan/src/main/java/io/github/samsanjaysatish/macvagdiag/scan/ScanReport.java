@@ -23,11 +23,8 @@ public final class ScanReport {
     private ScanReport() {
     }
 
-    /**
-     * @param maskVin true to mask the VIN everywhere (header, identification, raw records); see {@link VinMask}
-     */
-    public static String text(AutoScanResult result, boolean maskVin) {
-        AutoScanResult r = maskVin ? result.maskVin() : result;
+    /** The whole Auto-Scan. There is no VIN in it: the VIN is never read (user's decision, 2026-11-17). */
+    public static String text(AutoScanResult r) {
         StringBuilder b = new StringBuilder();
         b.append("macvagdiag Auto-Scan (read-only)\n").append("=".repeat(WIDTH)).append('\n');
         if (r.demo()) {
@@ -35,8 +32,7 @@ public final class ScanReport {
         }
         field(b, "", "Date", DATE.format(r.startedAt()));
         field(b, "", "Duration", seconds(Duration.between(r.startedAt(), r.finishedAt())));
-        field(b, "", "VIN", r.vin().map(v -> v + (maskVin ? "  (masked)" : "")
-                + r.vinSource().map(m -> "  from module " + m.hex()).orElse("")).orElse("not read"));
+        field(b, "", "Mileage", r.mileage().map(ScanReport::mileage).orElse("not read"));
         field(b, "", "Requested by", r.caller().label());
         field(b, "", "Modules", String.format("%d checked, %d responding, %d with faults, %d fault code(s)",
                 r.modules().size(), r.respondingModules().size(),
@@ -67,9 +63,9 @@ public final class ScanReport {
     }
 
     /** The section for one module (used by the web page and for single-module reads). */
-    public static String text(ModuleResult result, boolean maskVin) {
+    public static String text(ModuleResult result) {
         StringBuilder b = new StringBuilder();
-        module(b, maskVin ? result.maskVin() : result);
+        module(b, result);
         return b.toString();
     }
 
@@ -78,6 +74,7 @@ public final class ScanReport {
         m.link().ifPresent(l -> field(b, INDENT, "Protocol", l.describe()));
         m.gatewayStatus().ifPresent(g -> field(b, INDENT, "Gateway", g.vcdsText()));
         m.identification().ifPresent(id -> identification(b, id));
+        m.mileage().ifPresent(v -> field(b, INDENT, "Mileage", mileage(v)));
         switch (m.status()) {
             case NOT_RESPONDING, SKIPPED, GATEWAY_STATUS_ONLY -> {
             }
@@ -87,6 +84,11 @@ public final class ScanReport {
             field(b, INDENT, "Note", note);
         }
         m.limitHit().ifPresent(h -> field(b, INDENT, "Limit", h.message()));
+    }
+
+    /** E.g. {@code 366280 km (227595 mi), from module 17}. */
+    static String mileage(Mileage m) {
+        return String.format("%d km (%d mi), from module %s", m.kilometres(), m.miles(), m.source().hex());
     }
 
     private static String status(ModuleResult m) {
@@ -107,7 +109,6 @@ public final class ScanReport {
         id.systemName().ifPresent(v -> field(b, INDENT, "Component", v));
         id.softwareVersion().ifPresent(v -> field(b, INDENT, "Software", v));
         id.coding().ifPresent(v -> field(b, INDENT, "Coding", v));
-        id.vin().ifPresent(v -> field(b, INDENT, "VIN", v));
         boolean anyDecoded = id.partNumber().isPresent() || id.systemName().isPresent();
         for (RawValue raw : id.raw()) {
             if (anyDecoded) {

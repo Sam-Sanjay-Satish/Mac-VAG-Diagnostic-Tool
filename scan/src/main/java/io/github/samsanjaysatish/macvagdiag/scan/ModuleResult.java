@@ -21,18 +21,28 @@ import java.util.Optional;
  * @param finishedAt when it ended
  * @param gatewayStatus what the gateway's installation list said about it (VCDS's "Status" column), if the list
  *     was read in this scan
+ * @param mileage the odometer, if this module has it and it was read (17 Instruments in an Auto-Scan)
  */
 public record ModuleResult(ModuleAddress module, ModuleStatus status, Optional<ModuleLink> link,
         Optional<EcuInfo> identification, List<FaultCode> faults, boolean faultListComplete, List<String> notes,
         Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt,
-        Optional<GatewayStatus> gatewayStatus) {
+        Optional<GatewayStatus> gatewayStatus, Optional<Mileage> mileage) {
 
     /** A result without a gateway status (single-module reads, fixed-list scans). */
     public ModuleResult(ModuleAddress module, ModuleStatus status, Optional<ModuleLink> link,
             Optional<EcuInfo> identification, List<FaultCode> faults, boolean faultListComplete, List<String> notes,
             Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt) {
         this(module, status, link, identification, faults, faultListComplete, notes, limitHit, requests, startedAt,
-                finishedAt, Optional.empty());
+                finishedAt, Optional.empty(), Optional.empty());
+    }
+
+    /** A result without a mileage. */
+    public ModuleResult(ModuleAddress module, ModuleStatus status, Optional<ModuleLink> link,
+            Optional<EcuInfo> identification, List<FaultCode> faults, boolean faultListComplete, List<String> notes,
+            Optional<LimitHit> limitHit, int requests, Instant startedAt, Instant finishedAt,
+            Optional<GatewayStatus> gatewayStatus) {
+        this(module, status, link, identification, faults, faultListComplete, notes, limitHit, requests, startedAt,
+                finishedAt, gatewayStatus, Optional.empty());
     }
 
     public ModuleResult {
@@ -46,21 +56,17 @@ public record ModuleResult(ModuleAddress module, ModuleStatus status, Optional<M
         Objects.requireNonNull(startedAt, "startedAt");
         Objects.requireNonNull(finishedAt, "finishedAt");
         Objects.requireNonNull(gatewayStatus, "gatewayStatus");
+        Objects.requireNonNull(mileage, "mileage");
     }
 
     /** A copy with {@code status} as the gateway status. */
     public ModuleResult withGatewayStatus(GatewayStatus status) {
         return new ModuleResult(module, this.status, link, identification, faults, faultListComplete, notes, limitHit,
-                requests, startedAt, finishedAt, Optional.of(status));
+                requests, startedAt, finishedAt, Optional.of(status), mileage);
     }
 
     /** True if the module answered at all. */
     public boolean responded() {
         return link.isPresent() && status != ModuleStatus.NOT_RESPONDING && status != ModuleStatus.SKIPPED;
-    }
-
-    /** A copy with every VIN this module reported masked (see {@link VinMask}). */
-    public ModuleResult maskVin() {
-        return VinMask.mask(this, VinMask.vinsOf(List.of(this)));
     }
 }

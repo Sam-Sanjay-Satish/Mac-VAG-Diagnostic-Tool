@@ -32,7 +32,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ErrorMappingTest {
 
     private final FakeScanService scan = new FakeScanService();
-    private final McpTools tools = new McpTools(scan, McpOptions.defaults());
+    private final McpTools tools = new McpTools(scan);
 
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {"get_session_status", "list_modules", "read_fault_codes", "get_vehicle_info"})
@@ -95,7 +95,7 @@ class ErrorMappingTest {
 
     @Test
     void auditFailureDoesNotHideTheResult() {
-        McpTools t = new McpTools(new AuditFailingScan(scan), McpOptions.defaults());
+        McpTools t = new McpTools(new AuditFailingScan(scan));
         ToolTesting.ok(t, "get_session_status", t.call("get_session_status", Map.of()));
         assertEquals(0, scan.toolCalls().size());
     }

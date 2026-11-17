@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 final class Ascii {
 
     /** A made-up, VIN-shaped test value (17 characters). Not a real car's VIN. */
-    static final String TEST_VIN = "WVWZZZTESTVIN0000";
 
     private Ascii() {
     }

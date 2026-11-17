@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 class ArgumentValidationTest {
 
     private final FakeScanService scan = new FakeScanService();
-    private final McpTools tools = new McpTools(scan, McpOptions.defaults());
+    private final McpTools tools = new McpTools(scan);
 
     static Stream<Arguments> badFaultCodeArguments() {
         Map<String, Object> nullModule = new HashMap<>();

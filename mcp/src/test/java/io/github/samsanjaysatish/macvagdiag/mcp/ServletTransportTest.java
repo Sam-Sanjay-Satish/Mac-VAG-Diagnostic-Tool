@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.samsanjaysatish.macvagdiag.scan.FakeScanService;
-import io.github.samsanjaysatish.macvagdiag.scan.SampleScanData;
 import io.github.samsanjaysatish.macvagdiag.scan.ToolCallRecord;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,7 +28,7 @@ class ServletTransportTest {
     private static final String SESSION = "Mcp-Session-Id";
 
     private final FakeScanService scan = new FakeScanService();
-    private final McpEndpoint endpoint = McpEndpoint.create(scan, McpOptions.defaults());
+    private final McpEndpoint endpoint = McpEndpoint.create(scan);
 
     @AfterEach
     void close() {
@@ -114,7 +113,7 @@ class ServletTransportTest {
         assertEquals("001025", map(list(structured.get("faults")).getFirst()).get("id"));
         String text = (String) map(list(result.get("content")).getFirst()).get("text");
         assertEquals(structured, parse(text));
-        assertFalse(text.contains(SampleScanData.VIN), "VIN masked over the wire too");
+        assertFalse(text.contains("vin"), "no VIN over the wire");
 
         assertEquals(List.of("readFaultCodes"), scan.calls().stream().map(FakeScanService.Call::method)
                 .filter(m -> !m.equals("recordToolCall")).toList());

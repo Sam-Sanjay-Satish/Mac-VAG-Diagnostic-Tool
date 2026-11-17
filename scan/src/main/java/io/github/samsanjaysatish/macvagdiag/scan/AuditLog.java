@@ -18,7 +18,8 @@ import java.util.function.Consumer;
  * every request the guard rejected, every result, keep-alive, channel open/close, every refusal by a limit, and
  * every MCP tool call. Every line has {@code time}, {@code event} and, where there is one, {@code caller}.
  *
- * <p>The file contains raw responses, so it can contain the VIN; it lives in the user's app data directory,
+ * <p>The file contains raw responses (part numbers, serials, mileage; the VIN is never requested); it lives in
+ * the user's app data directory,
  * never in the repo. The file is only ever opened with {@code APPEND}.
  */
 final class AuditLog implements AutoCloseable {

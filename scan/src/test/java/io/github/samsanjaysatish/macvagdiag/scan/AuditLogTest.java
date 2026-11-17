@@ -126,7 +126,7 @@ class AuditLogTest {
         try (ScanService service = stack.service()) {
             service.sessionStatus(Caller.web()); // opens the adapter
             ChannelFactory rogue = ChannelFactory.create(stack.adapter(), time, stack.connector().auditListener());
-            try (DiagnosticChannel ch = rogue.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS))) {
+            try (DiagnosticChannel ch = rogue.open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS))) {
                 assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse(forbidden), Duration.ofSeconds(1)));
             }
             assertEquals(List.of(), stack.adapter().sentFrames(), "zero frames");
@@ -146,7 +146,7 @@ class AuditLogTest {
         try (ScanService service = stack.service()) {
             service.sessionStatus(Caller.web());
             ChannelFactory rogue = ChannelFactory.create(stack.adapter(), time, stack.connector().auditListener());
-            try (DiagnosticChannel ch = rogue.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS))) {
+            try (DiagnosticChannel ch = rogue.open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS))) {
                 assertThrows(ScanEngine.UnreservedRequestException.class,
                         () -> ch.request(Hex.parse("19 02 FF"), Duration.ofSeconds(1)));
             }
@@ -165,7 +165,7 @@ class AuditLogTest {
             service.sessionStatus(Caller.web());
             ChannelFactory factory = ChannelFactory.create(stack.adapter(), time, stack.connector().auditListener());
             ScanContext ctx = new ScanContext("t-2", Caller.mcp("read_fault_codes"), "test", () -> false);
-            try (DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS))) {
+            try (DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS))) {
                 assertThrows(ScanEngine.UnreservedRequestException.class, () -> service.engine().runReserved(ctx,
                         ModuleAddress.ENGINE, 1, () -> {
                             ch.request(Hex.parse("19 02 FF"), Duration.ofSeconds(1));
@@ -173,7 +173,7 @@ class AuditLogTest {
                         }));
             }
             long singleFrames = stack.adapter().sentFrames().stream()
-                    .filter(f -> f.id() == 0x7E0 && f.dataByte(0) == 0x03 && f.dataByte(1) == 0x19).count();
+                    .filter(f -> f.id() == 0x714 && f.dataByte(0) == 0x03 && f.dataByte(1) == 0x19).count();
             assertEquals(1, singleFrames, "only the reserved request reached the wire");
             assertEquals(1, log.toString().lines().filter(l -> l.contains("\"event\":\"request\"")
                     && l.contains("\"caller\":\"mcp:read_fault_codes\"")).count());
@@ -212,7 +212,7 @@ class AuditLogTest {
             service.sessionStatus(Caller.web());
             ChannelFactory factory = ChannelFactory.create(stack.adapter(), time, stack.connector().auditListener());
             ScanContext ctx = new ScanContext("t-1", Caller.web(), "test", () -> false);
-            try (DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS))) {
+            try (DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS))) {
                 writer.fail = true;
                 assertThrows(UncheckedIOException.class, () -> service.engine().runReserved(ctx, ModuleAddress.ENGINE, 1,
                         () -> ch.request(Hex.parse("19 02 FF"), Duration.ofSeconds(1))));

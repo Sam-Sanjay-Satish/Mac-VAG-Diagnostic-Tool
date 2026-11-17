@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
  *
  * <p>What it reads:
  * <ul>
- *   <li>Header: the VIN line, if any.</li>
+ *   <li>Header: the VIN line and the mileage line ({@code Mileage: 366280km-227595mi}), if any.</li>
  *   <li>Auto-Scan status table: {@code 01-Engine -- Status: Malfunction 0010}.</li>
  *   <li>Each {@code Address xx: name} block: its info lines ({@code Part No SW: ... HW: ...}, {@code Component:},
  *       {@code Coding:}, ...; the single-module form's right-aligned keys too), "Cannot be reached", and its faults.</li>
@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
  * </ul>
  * Descriptions (fault texts, failure-type texts) come from VCDS's own database; they are kept as text only.
  */
-public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<Module> modules) {
+public record VcdsLog(Optional<String> vin, Optional<Integer> mileageKm, List<StatusLine> statusTable,
+        List<Module> modules) {
 
     /** One line of the Auto-Scan status table. */
     public record StatusLine(String address, String name, String status, String bits) {
@@ -111,6 +112,7 @@ public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<M
 
     public VcdsLog {
         Objects.requireNonNull(vin, "vin");
+        Objects.requireNonNull(mileageKm, "mileageKm");
         statusTable = List.copyOf(statusTable);
         modules = List.copyOf(modules);
     }
@@ -129,6 +131,8 @@ public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<M
     }
 
     private static final Pattern VIN = Pattern.compile("^VIN: (\\S+)");
+    /** The header line {@code Mileage: 366280km-227595mi} (the first km figure only). */
+    private static final Pattern MILEAGE = Pattern.compile("^Mileage: (\\d+)km");
     private static final Pattern STATUS = Pattern.compile("^([0-9A-F]{2})-(.+?) -- Status: (.+) ([01]{4})\\s*$");
     private static final Pattern ADDRESS = Pattern.compile("^\\s*Address ([0-9A-F]{2}): (.+?)(?:\\s{2,}Labels:.*)?\\s*$");
     private static final Pattern FAULT_COUNT = Pattern.compile("^(\\d+) Faults? Found:\\s*$");
@@ -145,6 +149,7 @@ public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<M
     public static VcdsLog parse(String text) {
         List<String> lines = text.lines().toList();
         Optional<String> vin = Optional.empty();
+        Optional<Integer> mileage = Optional.empty();
         List<StatusLine> table = new ArrayList<>();
         List<Module> modules = new ArrayList<>();
         int i = 0;
@@ -153,6 +158,8 @@ public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<M
             Matcher m;
             if (vin.isEmpty() && (m = VIN.matcher(line)).find()) {
                 vin = Optional.of(m.group(1));
+            } else if (mileage.isEmpty() && (m = MILEAGE.matcher(line)).find()) {
+                mileage = Optional.of(Integer.parseInt(m.group(1)));
             } else if ((m = STATUS.matcher(line)).matches()) {
                 table.add(new StatusLine(m.group(1), m.group(2).trim(), m.group(3).trim(), m.group(4)));
             } else if ((m = ADDRESS.matcher(line)).matches()) {
@@ -163,7 +170,7 @@ public record VcdsLog(Optional<String> vin, List<StatusLine> statusTable, List<M
             }
             i++;
         }
-        return new VcdsLog(vin, table, modules);
+        return new VcdsLog(vin, mileage, table, modules);
     }
 
     private static boolean endOfModule(String line) {

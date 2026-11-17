@@ -21,7 +21,7 @@ final class DefaultScanService implements ScanService {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultScanService.class);
 
-    /** UNCONFIRMED: which modules hold the VIN on this car (engine, instruments, gateway), asked in this order. */
+    /** The modules {@link #vehicleInfo} identifies, in this order; 17 also gives the mileage. */
     static final List<ModuleAddress> VEHICLE_INFO_MODULES =
             List.of(ModuleAddress.ENGINE, ModuleAddress.INSTRUMENTS, ModuleAddress.GATEWAY);
     /** Session start + DTC read: the least a fault-code read needs. A smaller window refuses up front. */
@@ -155,10 +155,8 @@ final class DefaultScanService implements ScanService {
                 return engine.identify(ctx, m);
             }));
         }
-        Optional<ModuleIdentity> withVin = modules.stream()
-                .filter(m -> m.identification().flatMap(EcuInfo::vin).isPresent()).findFirst();
-        return new VehicleInfo(withVin.flatMap(m -> m.identification().flatMap(EcuInfo::vin)),
-                withVin.map(ModuleIdentity::module), modules, time.now(), demo);
+        Optional<Mileage> mileage = modules.stream().flatMap(m -> m.mileage().stream()).findFirst();
+        return new VehicleInfo(mileage, modules, time.now(), demo);
     }
 
     @Override
@@ -243,9 +241,8 @@ final class DefaultScanService implements ScanService {
             if (stopReason != null) {
                 notes.add(stopReason);
             }
-            Optional<ModuleResult> withVin = vinSource(results);
-            AutoScanResult result = new AutoScanResult(job.id(), job.caller(), job.startedAt(), time.now(),
-                    withVin.flatMap(m -> m.identification().flatMap(EcuInfo::vin)), withVin.map(ModuleResult::module),
+            Optional<Mileage> mileage = results.stream().flatMap(r -> r.mileage().stream()).findFirst();
+            AutoScanResult result = new AutoScanResult(job.id(), job.caller(), job.startedAt(), time.now(), mileage,
                     results, ctx.cancelled(), demo, notes, plan.installationList());
             if (!result.cancelled() && stopReason == null) {
                 engine.health().cacheListing(listing(results, plan));
@@ -261,20 +258,6 @@ final class DefaultScanService implements ScanService {
             log.error("Auto-Scan {} failed", job.id(), e);
             job.fail(e, time.now());
         }
-    }
-
-    /** The module the VIN comes from: the engine first, then the instruments, gateway, then any other. */
-    private static Optional<ModuleResult> vinSource(List<ModuleResult> results) {
-        List<ModuleResult> withVin = results.stream()
-                .filter(r -> r.identification().flatMap(EcuInfo::vin).isPresent()).toList();
-        for (ModuleAddress preferred : VEHICLE_INFO_MODULES) {
-            for (ModuleResult r : withVin) {
-                if (r.module().equals(preferred)) {
-                    return Optional.of(r);
-                }
-            }
-        }
-        return withVin.stream().findFirst();
     }
 
     private ModuleAvailability availability(ModuleResult r) {

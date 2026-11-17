@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -103,6 +104,7 @@ class RealCapturesTest {
     void autoScanLogParses() {
         VcdsLog log = VcdsLog.parse(RealCaptures.autoScanVcdsLog());
         assertEquals(RealCaptures.MASKED_VIN, log.vin().orElseThrow());
+        assertEquals(Optional.of(366280), log.mileageKm(), "header 'Mileage: 366280km-227595mi'");
         assertEquals(List.of("01", "02", "03", "04", "05", "08", "09", "15", "17", "19", "25", "2B", "2E", "44", "56", "77"),
                 log.statusTable().stream().map(VcdsLog.StatusLine::address).toList());
         assertEquals("Malfunction 0010", log.status("01").orElseThrow().text());
@@ -169,6 +171,7 @@ class RealCapturesTest {
     void freezeFrameLogParses() {
         VcdsLog log = VcdsLog.parse(RealCaptures.freezeFrame01VcdsLog());
         assertTrue(log.vin().isEmpty());
+        assertTrue(log.mileageKm().isEmpty());
         assertTrue(log.statusTable().isEmpty());
         assertEquals(1, log.modules().size());
         VcdsLog.Module engine = log.modules().getFirst();

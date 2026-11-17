@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory;
  *       schema as a backstop. Anything wrong is refused <b>before</b> {@code ScanService} is called.</li>
  *   <li><b>Call</b> scan as {@link Caller#mcp(String) mcp:&lt;tool&gt;}. scan enforces the allowlist, rate limits,
  *       budgets and sessions whatever the model asks.</li>
- *   <li><b>Shape</b> the result as JSON ({@link ToolOutput}), VIN masked unless {@link McpOptions#maskVin()} is off.</li>
+ *   <li><b>Shape</b> the result as JSON ({@link ToolOutput}). There is no VIN to shape: it is never read.</li>
  *   <li><b>Audit</b> the call with {@link ScanService#recordToolCall}, whatever the outcome.</li>
  * </ol>
  *
@@ -66,7 +66,6 @@ final class McpTools {
     private static final String DEMO_NOTE = " \"demo\": true means the built-in simulated car: all data is made up.";
 
     private final ScanService scan;
-    private final McpOptions options;
     private final McpJsonMapper json = McpJsonDefaults.getMapper();
     private final JsonSchemaValidator schemaValidator = McpJsonDefaults.getSchemaValidator();
     private final Map<String, Tool> tools = new LinkedHashMap<>();
@@ -93,9 +92,8 @@ final class McpTools {
         }
     }
 
-    McpTools(ScanService scan, McpOptions options) {
+    McpTools(ScanService scan) {
         this.scan = Objects.requireNonNull(scan, "scan");
-        this.options = Objects.requireNonNull(options, "options");
 
         add(GET_SESSION_STATUS, "Session status",
                 "Is the tool ready to talk to the car? Returns the CAN adapter state (CONNECTED / DISCONNECTED with "
@@ -126,24 +124,21 @@ final class McpTools {
                 ToolSchemas.moduleArgument(), ToolSchemas.faultCodesOutput(), Set.of(MODULE_ARG), args -> {
                     ModuleAddress module = module(args);
                     ModuleResult r = scan.readFaultCodes(Caller.mcp(READ_FAULT_CODES), module);
-                    ModuleResult shown = options.maskVin() ? r.maskVin() : r;
-                    return new Outcome(ToolOutput.faultCodes(shown, scan.isDemo(), options.maskVin()),
+                    return new Outcome(ToolOutput.faultCodes(r, scan.isDemo()),
                             "module " + module.hex() + " " + module.name() + ": " + r.status() + ", "
                                     + r.faults().size() + " fault(s)");
                 });
 
         add(GET_VEHICLE_INFO, "Vehicle info",
-                "The VIN and the identification (part number, software version, hardware number, system name, "
-                        + "coding, raw identification records) of the engine (01), instruments (17) and gateway (19). "
-                        + "The VIN is masked (last six characters as *) unless the user turned masking off in the "
-                        + "app's config; that can't be changed from here." + READ_ONLY_NOTE + DEMO_NOTE,
+                "The identification (part number, software version, hardware number, system name, coding, raw "
+                        + "identification records) of the engine (01), instruments (17) and gateway (19), and the "
+                        + "mileage: the odometer of the instruments (17), in km. The VIN is not read."
+                        + READ_ONLY_NOTE + DEMO_NOTE,
                 ToolSchemas.noArguments(), ToolSchemas.vehicleInfoOutput(), Set.of(), args -> {
                     VehicleInfo v = scan.vehicleInfo(Caller.mcp(GET_VEHICLE_INFO));
-                    VehicleInfo shown = options.maskVin() ? v.maskVin() : v;
-                    return new Outcome(ToolOutput.vehicleInfo(shown, options.maskVin()),
-                            "VIN " + (v.vin().isPresent() ? "read from " + v.vinSource().map(ModuleAddress::hex)
-                                    .orElse("?") + (options.maskVin() ? " (masked)" : " (unmasked)") : "not reported")
-                                    + ", " + v.modules().size() + " module(s) asked");
+                    return new Outcome(ToolOutput.vehicleInfo(v),
+                            "mileage " + v.mileage().map(m -> m.kilometres() + " km from " + m.source().hex())
+                                    .orElse("not read") + ", " + v.modules().size() + " module(s) asked");
                 });
 
         if (!List.copyOf(tools.keySet()).equals(NAMES)) {

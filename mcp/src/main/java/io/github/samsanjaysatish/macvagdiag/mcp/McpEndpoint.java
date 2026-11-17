@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
  * 2026-10-22), so the web page and the AI share one {@link ScanService} and one adapter.
  *
  * <pre>{@code
- * McpEndpoint mcp = McpEndpoint.create(scanService, McpOptions.defaults());
+ * McpEndpoint mcp = McpEndpoint.create(scanService);
  * // Spring: new ServletRegistrationBean<>(mcp.servlet(), mcp.path())   (async support on, the default)
  * ...
  * mcp.close();   // before scanService.close()
@@ -42,7 +42,7 @@ public final class McpEndpoint implements AutoCloseable {
     static final String INSTRUCTIONS = """
             macvagdiag is a read-only diagnostic tool for a VW (2013 Jetta TDI), connected to the car through a CAN \
             adapter. It can read the session status, which modules respond, fault codes with status and freeze \
-            frame, and the vehicle's identification. It cannot clear codes, run output tests, change coding or \
+            frame, and the vehicle's identification and mileage (the VIN is never read). It cannot clear codes, run output tests, change coding or \
             adaptation, or send arbitrary requests, and no tool can. Start with get_session_status. Rate limits are \
             enforced by the tool: when a call is refused, follow the message (it says when to retry). Physical \
             conditions (ignition on, engine warm, held rpm, a test drive) need the human: ask the user to set them \
@@ -64,12 +64,10 @@ public final class McpEndpoint implements AutoCloseable {
      * Builds the MCP server over {@code scan}. Call once at app startup.
      *
      * @param scan the app's one scan service (shared with the web UI); not closed by {@link #close()}
-     * @param options user settings (VIN masking)
      */
-    public static McpEndpoint create(ScanService scan, McpOptions options) {
+    public static McpEndpoint create(ScanService scan) {
         Objects.requireNonNull(scan, "scan");
-        Objects.requireNonNull(options, "options");
-        McpTools tools = new McpTools(scan, options);
+        McpTools tools = new McpTools(scan);
         HttpServletStreamableServerTransportProvider transport = HttpServletStreamableServerTransportProvider.builder()
                 .mcpEndpoint(PATH)
                 .httpHeaderValidator(LocalhostOnly.INSTANCE)

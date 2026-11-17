@@ -114,7 +114,6 @@ final class ToolSchemas {
                   "type": "object",
                   "properties": {
                     "demo": {"type": "boolean"},
-                    "vinMasked": {"type": "boolean"},
                     "module": {"$ref": "#/$defs/module"},
                     "status": {"enum": ["OK", "FAULTS", "NOT_RESPONDING", "ERROR", "INCOMPLETE", "SKIPPED",
                                         "GATEWAY_STATUS_ONLY"]},
@@ -146,7 +145,7 @@ final class ToolSchemas {
                     "startedAt": {"$ref": "#/$defs/timestamp"},
                     "timestamp": {"$ref": "#/$defs/timestamp"}
                   },
-                  "required": ["demo", "vinMasked", "module", "status", "statusDescription", "protocol", "link",
+                  "required": ["demo", "module", "status", "statusDescription", "protocol", "link",
                                "faultCount", "faultListComplete", "faults", "identification", "notes", "limitHit",
                                "requests", "startedAt", "timestamp"],
                   "additionalProperties": false
@@ -160,8 +159,7 @@ final class ToolSchemas {
                   "type": "object",
                   "properties": {
                     "demo": {"type": "boolean"},
-                    "vinMasked": {"type": "boolean"},
-                    "vin": {"$ref": "#/$defs/value"},
+                    "mileage": {"$ref": "#/$defs/value"},
                     "modules": {
                       "type": "array",
                       "items": {
@@ -183,7 +181,7 @@ final class ToolSchemas {
                     },
                     "timestamp": {"$ref": "#/$defs/timestamp"}
                   },
-                  "required": ["demo", "vinMasked", "vin", "modules", "timestamp"],
+                  "required": ["demo", "mileage", "modules", "timestamp"],
                   "additionalProperties": false
                 }
                 """);

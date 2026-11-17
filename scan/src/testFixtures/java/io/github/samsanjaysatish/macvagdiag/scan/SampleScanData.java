@@ -9,11 +9,11 @@ import java.util.OptionalInt;
 
 /**
  * Canned scan results for front-end tests (JSON shapes, report snapshots). <b>Sample data, not a real car</b>:
- * the VIN is {@value #VIN}. Every value is fixed, so snapshots are stable.
+ * the mileage is {@value #MILEAGE_KM} km. Every value is fixed, so snapshots are stable.
  */
 public final class SampleScanData {
 
-    public static final String VIN = "SAMPLEVIN00000000";
+    public static final int MILEAGE_KM = 123450;
     public static final Instant AT = Instant.parse("2026-01-01T10:00:00Z");
 
     private SampleScanData() {
@@ -27,8 +27,14 @@ public final class SampleScanData {
 
     public static EcuInfo engineInfo() {
         return new EcuInfo(Protocol.KWP2000, Optional.of("03L906018XX"), Optional.of("9971"), Optional.empty(),
-                Optional.of("SAMPLE R4 2.0L TDI"), Optional.of("0001234"), Optional.of(VIN),
-                List.of(new RawValue("1A 90", hexOf(VIN), Optional.of(VIN))), List.of());
+                Optional.of("SAMPLE R4 2.0L TDI"), Optional.of("0001234"),
+                List.of(new RawValue("1A 9B", hexOf("03L906018XX"), Optional.of("03L906018XX"))), List.of());
+    }
+
+    /** 17's odometer: {@code 62 22 03 30 39} = 12345 × 10 km. */
+    public static Mileage mileage() {
+        return new Mileage(MILEAGE_KM, ModuleAddress.INSTRUMENTS, new RawValue("22 22 03", "62 22 03 30 39",
+                Optional.empty()), AT.plusMillis(200));
     }
 
     /** 17 Instruments (UDS): U0115-00, confirmed. */
@@ -84,7 +90,7 @@ public final class SampleScanData {
             case "03" -> new ModuleResult(m, ModuleStatus.FAULTS, link, Optional.empty(), List.of(kwpFault()), true,
                     List.of(), Optional.empty(), 4, AT, end);
             case "17" -> new ModuleResult(m, ModuleStatus.FAULTS, link, Optional.empty(), List.of(udsFault()), true,
-                    List.of(), Optional.empty(), 4, AT, end);
+                    List.of(), Optional.empty(), 5, AT, end, Optional.empty(), Optional.of(mileage()));
             case "04" -> new ModuleResult(m, ModuleStatus.GATEWAY_STATUS_ONLY, Optional.empty(), Optional.empty(),
                     List.of(), false, List.of("04 " + ScanEngine.NO_LINK), Optional.empty(), 0, AT, AT);
             case "2E", "56" -> new ModuleResult(m, ModuleStatus.NOT_RESPONDING, Optional.empty(), Optional.empty(),
@@ -109,17 +115,20 @@ public final class SampleScanData {
     }
 
     public static VehicleInfo vehicleInfo() {
-        return new VehicleInfo(Optional.of(VIN), Optional.of(ModuleAddress.ENGINE),
+        return new VehicleInfo(Optional.of(mileage()),
                 List.of(new ModuleIdentity(ModuleAddress.ENGINE, ModuleAvailability.Reachability.RESPONDING,
-                        Optional.of(ModuleAddress.ENGINE.links().getFirst()), Optional.of(engineInfo()), List.of())),
+                        Optional.of(ModuleAddress.ENGINE.links().getFirst()), Optional.of(engineInfo()), List.of()),
+                        new ModuleIdentity(ModuleAddress.INSTRUMENTS, ModuleAvailability.Reachability.RESPONDING,
+                                Optional.of(ModuleAddress.INSTRUMENTS.links().getFirst()), Optional.empty(),
+                                List.of("identification not read: sample"), Optional.of(mileage()))),
                 AT, false);
     }
 
     public static AutoScanResult autoScan() {
         List<ModuleResult> modules = ModuleAddress.known().stream().map(SampleScanData::moduleResult).toList();
         List<GatewayStatus> list = ModuleAddress.known().stream().map(SampleScanData::gatewayStatus).toList();
-        return new AutoScanResult("scan-sample", Caller.web(), AT, AT.plus(Duration.ofSeconds(6)), Optional.of(VIN),
-                Optional.of(ModuleAddress.ENGINE), modules, false, false,
+        return new AutoScanResult("scan-sample", Caller.web(), AT, AT.plus(Duration.ofSeconds(6)),
+                Optional.of(mileage()), modules, false, false,
                 List.of("module list: from the gateway's installation list (" + list.size() + " installed)"), list);
     }
 

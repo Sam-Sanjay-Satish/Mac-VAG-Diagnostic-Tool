@@ -12,9 +12,16 @@ import java.util.Optional;
  * @param link the link it answered on
  * @param identification what it said, if it answered the identification requests
  * @param notes readable notes
+ * @param mileage the odometer, if this module has it and it was read (17 Instruments)
  */
 public record ModuleIdentity(ModuleAddress module, ModuleAvailability.Reachability reachability,
-        Optional<ModuleLink> link, Optional<EcuInfo> identification, List<String> notes) {
+        Optional<ModuleLink> link, Optional<EcuInfo> identification, List<String> notes, Optional<Mileage> mileage) {
+
+    /** Without a mileage. */
+    public ModuleIdentity(ModuleAddress module, ModuleAvailability.Reachability reachability,
+            Optional<ModuleLink> link, Optional<EcuInfo> identification, List<String> notes) {
+        this(module, reachability, link, identification, notes, Optional.empty());
+    }
 
     public ModuleIdentity {
         Objects.requireNonNull(module, "module");
@@ -22,5 +29,6 @@ public record ModuleIdentity(ModuleAddress module, ModuleAvailability.Reachabili
         Objects.requireNonNull(link, "link");
         Objects.requireNonNull(identification, "identification");
         notes = List.copyOf(notes);
+        Objects.requireNonNull(mileage, "mileage");
     }
 }

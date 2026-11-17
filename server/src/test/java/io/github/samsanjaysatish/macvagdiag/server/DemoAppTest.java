@@ -55,8 +55,8 @@ import tools.jackson.databind.ObjectMapper;
 @ExtendWith(OutputCaptureExtension.class)
 class DemoAppTest {
 
-    /** The demo car's made-up VIN (scan's {@code DemoCar.VIN}). */
-    static final String DEMO_VIN = "DEMOVIN0000000000";
+    /** The demo car's made-up odometer (scan's {@code DemoCar.ODOMETER_KM}). */
+    static final int DEMO_ODOMETER_KM = 123450;
 
     static final Path AUDIT = TestAuditLogs.newFile("demo");
 
@@ -100,7 +100,7 @@ class DemoAppTest {
     }
 
     @Test
-    @DisplayName("Auto-Scan through the API: the demo modules, codes, statuses, VIN, DEMO flag and report")
+    @DisplayName("Auto-Scan through the API: the demo modules, codes, statuses, mileage, DEMO flag and report")
     void demoAutoScan(CapturedOutput output) throws Exception {
         JsonNode status = getJson("/api/status");
         assertEquals("CONNECTED", status.get("adapter").asString());
@@ -152,17 +152,19 @@ class DemoAppTest {
                 engine.get("faults").get(0).get("freezeFrame").get("records").get(0).get("id").asString());
 
         JsonNode result = job.get("result");
-        assertEquals(DEMO_VIN, result.get("vin").asString());
+        assertEquals(DEMO_ODOMETER_KM, result.get("mileage").get("kilometres").asInt());
+        assertEquals("17", result.get("mileage").get("module").asString());
+        assertFalse(result.has("vin"));
         assertEquals(7, result.get("faultCodes").asInt());
         assertTrue(result.get("fromInstallationList").asBoolean());
         assertTrue(result.get("demo").asBoolean());
 
-        HttpResponse<String> report = send(request("/api/scans/" + id + "/report.txt?maskVin=true").GET());
+        HttpResponse<String> report = send(request("/api/scans/" + id + "/report.txt").GET());
         assertEquals(200, report.statusCode());
         assertTrue(report.body().contains("*** DEMO DATA: simulated car, not a real vehicle ***"), report.body());
-        assertTrue(report.body().contains("DEMOVIN0000******"), report.body());
-        assertFalse(report.body().contains(DEMO_VIN));
-        assertTrue(report.headers().firstValue("Content-Disposition").orElse("").contains("-demo-vin-masked.txt"));
+        assertTrue(report.body().contains("Mileage:      123450 km (76708 mi), from module 17"), report.body());
+        assertFalse(report.body().contains("VIN"), report.body());
+        assertTrue(report.headers().firstValue("Content-Disposition").orElse("").contains("-demo.txt"));
 
         // One module through the API, and the module list.
         JsonNode gateway = getJson("/api/modules/19/faults");
@@ -171,12 +173,11 @@ class DemoAppTest {
         JsonNode modules = getJson("/api/modules");
         assertEquals("RESPONDING", modules.get("modules").get(0).get("reachability").asString());
 
-        // The audit log got the web requests, marked demo; the app's own log never has the full VIN.
+        // The audit log got the web requests, marked demo.
         List<String> audit = Files.readAllLines(AUDIT, StandardCharsets.UTF_8);
         assertTrue(audit.stream().anyMatch(l -> l.contains("\"event\":\"request\"") && l.contains("\"caller\":\"web\"")),
                 String.join("\n", audit));
         assertTrue(audit.stream().allMatch(l -> l.contains("\"demo\":true")));
-        assertFalse(output.getAll().contains(DEMO_VIN), "the app log must never contain the full VIN");
     }
 
     @Test

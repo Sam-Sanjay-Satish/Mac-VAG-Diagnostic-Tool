@@ -121,8 +121,8 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.faults[0].freezeFrame.fields[0].kind").value("MILEAGE"))
                 .andExpect(jsonPath("$.faults[0].freezeFrame.fields[0].value").value("12345 km"))
                 .andExpect(jsonPath("$.identification.partNumber").value("03L906018XX"))
-                .andExpect(jsonPath("$.identification.raw[0].id").value("1A 90"))
-                .andExpect(jsonPath("$.identification.raw[0].text").value(SampleScanData.VIN));
+                .andExpect(jsonPath("$.identification.raw[0].id").value("1A 9B"))
+                .andExpect(jsonPath("$.identification.vin").doesNotExist());
         assertEquals(new FakeScanService.Call("readFaultCodes", "web", "01"), fake.calls().getFirst());
     }
 
@@ -203,8 +203,10 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.result.installationList", hasSize(16)))
                 .andExpect(jsonPath("$.result.installationList[12].address").value("2E"))
                 .andExpect(jsonPath("$.result.installationList[12].status").value("Cannot be reached 1100"))
-                .andExpect(jsonPath("$.result.vin").value(SampleScanData.VIN))
-                .andExpect(jsonPath("$.result.vinSource").value("01"))
+                .andExpect(jsonPath("$.result.mileage.kilometres").value(SampleScanData.MILEAGE_KM))
+                .andExpect(jsonPath("$.result.mileage.miles").value(76708))
+                .andExpect(jsonPath("$.result.mileage.module").value("17"))
+                .andExpect(jsonPath("$.result.vin").doesNotExist())
                 .andExpect(jsonPath("$.result.durationMs").value(6000))
                 .andExpect(jsonPath("$.result.modulesChecked").value(n))
                 .andExpect(jsonPath("$.result.modulesResponding").value(13))
@@ -325,9 +327,14 @@ class ScanControllerTest {
     }
 
     @Test
-    @DisplayName("maskVin must be a boolean → 400")
-    void badMaskVin() throws Exception {
+    @DisplayName("the old maskVin parameter is gone: ignored, same report, no VIN in it")
+    void noMaskVinParameter() throws Exception {
         mvc.perform(postJson("/api/scans"));
-        mvc.perform(get("/api/scans/scan-sample/report.txt?maskVin=maybe")).andExpect(status().isBadRequest());
+        String plain = mvc.perform(get("/api/scans/scan-sample/report.txt")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        String withParam = mvc.perform(get("/api/scans/scan-sample/report.txt?maskVin=true")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        org.junit.jupiter.api.Assertions.assertEquals(plain, withParam);
+        org.junit.jupiter.api.Assertions.assertFalse(plain.contains("VIN"));
     }
 }

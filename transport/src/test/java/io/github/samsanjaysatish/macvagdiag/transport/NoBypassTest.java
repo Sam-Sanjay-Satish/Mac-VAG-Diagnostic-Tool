@@ -210,7 +210,7 @@ class NoBypassTest {
         try (SimulatedAdapter iso = new SimulatedAdapter(time, FakeEcus.isoTp())) {
             iso.open(Bitrate.KBIT_500, AdapterMode.NORMAL);
             assertInstanceOf(GuardedChannel.class, ChannelFactory.create(iso, time)
-                    .open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS)));
+                    .open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS)));
         }
     }
 

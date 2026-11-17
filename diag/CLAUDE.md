@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** built against hand-written bytes and fakes, then **corrected from the 2026-11-13 capture** (2026-11-15; 231 tests, `./gradlew :diag:build` green). KWP2000 uses the request shapes the capture showed and the allowlist has since 2026-11-15 (`18 00 FF 00` / `18 02 FF 00`, `12 00 04 hh ll`, `22 hh ll` on TP 2.0). The KWP status byte, the `1A 9B` block, KWP freeze frames (all 14 captured records), the VAG → P-code mapping, the gateway installation list and the UDS `19 02 AE` / VCDS wording are decoded and tested against the real bytes and the VCDS log (`KwpCaptureTest`, `UdsCaptureTest`). **Replayed on 2026-11-16** (`CaptureReplayTest`): for every module VCDS reached, the real services over real transport channels decode the captured answers to exactly what the VCDS log shows. UDS freeze frames are read with `19 06` only since 2026-11-16 (VCDS never sent `19 04`). Still pending: decoding the UDS freeze-frame record into fields (the layout hypothesis fits all 5 records and is now checked by a test). What is still from memory is marked **UNCONFIRMED** in code and below. **Package:** `io.github.samsanjaysatish.macvagdiag.diag`
+**Status:** built against hand-written bytes and fakes, then **corrected from the 2026-11-13 capture** (2026-11-15; 240 tests since 2026-11-17, `./gradlew :diag:build` green). KWP2000 uses the request shapes the capture showed and the allowlist has since 2026-11-15 (`18 00 FF 00` / `18 02 FF 00`, `12 00 04 hh ll`, `22 hh ll` on TP 2.0). The KWP status byte, the `1A 9B` block, KWP freeze frames (all 14 captured records), the VAG → P-code mapping, the gateway installation list and the UDS `19 02 AE` / VCDS wording are decoded and tested against the real bytes and the VCDS log (`KwpCaptureTest`, `UdsCaptureTest`). **Replayed on 2026-11-16** (`CaptureReplayTest`): for every module VCDS reached, the real services over real transport channels decode the captured answers to exactly what the VCDS log shows. UDS freeze frames are read with `19 06` only since 2026-11-16 (VCDS never sent `19 04`). **2026-11-17 (user's decision): the VIN is never read** (`1A 90` and `22 F1 90` are gone, as is `EcuIdentification.vin()`), and **`readOdometer()`** (`22 22 03`) was added. Every request diag builds is now one VCDS sent on the capture. Still pending: decoding the UDS freeze-frame record into fields (the layout hypothesis fits all 5 records and is now checked by a test). What is still from memory is marked **UNCONFIRMED** in code and below. **Package:** `io.github.samsanjaysatish.macvagdiag.diag`
 **Depends on:** `transport` (only the public channel API: `DiagnosticChannel`, `Response`, `ModuleRoute`, `ApplicationProtocol`, `RequestGuard`, `ForbiddenRequestException`) and `can-core`'s `TimeSource` and `Hex`. `NoBypassSourceTest` enforces this. **Used by:** `scan`.
 
 ## Purpose
@@ -18,8 +18,9 @@ Speaks the diagnostic application protocols, **KWP2000** and **UDS (ISO 14229)**
   - `DiagResult<DtcList> readDtcs()`
   - `DiagResult<FreezeFrame> readFreezeFrame(Dtc)`: a DTC of the other protocol → `IllegalArgumentException`. **KWP: one `12 00 04 hh ll` per call. Call it once per DTC list entry, in list order, on the same channel**: a code stored several times returns the next stored record on each repeat. Nothing is cached.
   - `DiagResult<InstallationList> readInstallationList()`: `22 04 A1`, one request. Only the gateway has it; others answer `7F 22 31` → `Negative`.
+  - `DiagResult<Odometer> readOdometer()` (2026-11-17): `22 22 03`, one request, on either protocol. `Odometer(kilometres, response)`: `62 22 03 [hi] [lo]`, 16-bit big-endian × 10 km (`Odometer.KILOMETRES_PER_COUNT`); anything else is `Malformed`. On the capture only 17 was asked and answered `62 22 03 8F 14` = 366280 km, VCDS's header mileage. A module without it answers negatively. UNCONFIRMED: the 10 km unit (one sample).
 - **`KwpDiagnosticService(channel, time[, timings, KwpOptions])`**, **`UdsDiagnosticService(channel, time[, timings])`**. Both refuse a channel of the wrong protocol.
-  - Request counts for `scan`'s budgets: `KwpDiagnosticService.MAX_IDENTIFICATION_REQUESTS` (6: `1A 9B` + the 5 fallback DIDs; the `1A` path sends 2), `KwpDiagnosticService.FREEZE_FRAME_REQUESTS` (1), `UdsDiagnosticService.IDENTIFICATION_DIDS.size()` (6), `UdsDiagnosticService.FREEZE_FRAME_REQUESTS` (1, since 2026-11-16). DTC reads, session, tester present and the installation list are 1 each.
+  - Request counts for `scan`'s budgets: `KwpDiagnosticService.MAX_IDENTIFICATION_REQUESTS` (6: `1A 9B` + the 5 fallback DIDs; the `1A` path sends 1), `KwpDiagnosticService.FREEZE_FRAME_REQUESTS` (1), `UdsDiagnosticService.IDENTIFICATION_DIDS.size()` (5 since 2026-11-17), `UdsDiagnosticService.FREEZE_FRAME_REQUESTS` (1, since 2026-11-16). DTC reads, session, tester present, the installation list and the odometer are 1 each.
 - **`KwpOptions(DtcRequest, VagCodeMapping)`**: per-module choices `scan` makes. `DtcRequest.STATUS_00` (`18 00 FF 00`) / `STATUS_02` (`18 02 FF 00`). `KwpOptions.ENGINE` = `STATUS_00` + `VagCodeMapping.P_CODE_HEX` (what VCDS did for 01); `KwpOptions.DEFAULT` = `STATUS_02` + `NONE` (every other module and the gateway).
 - **`DiagnosticSession`**: `KWP_VW_DIAGNOSTIC`, `UDS_DEFAULT`, `UDS_EXTENDED`. That is all; no programming session exists here.
 - **`DiagResult<T>`** (sealed). Variants:
@@ -42,24 +43,25 @@ Speaks the diagnostic application protocols, **KWP2000** and **UDS (ISO 14229)**
   - `InstallationList(entries, response, undecoded, warnings)` with `installed()`, `entry(address)` and `complete()`. `InstallationList.Entry(address, tp20LogicalAddress, status, group)` has:
     - `statusKind()`: `NOT_INSTALLED` (`00`), `OK` (`01`), `MALFUNCTION` (`05`), `CANNOT_BE_REACHED` (`19`), `OTHER`.
     - `installed()`, `vcdsStatusBits()` (bits 4..1, e.g. `0010`) and `tp20Address()` (empty for `00`).
-  - `EcuIdentification(protocol, Map<Field,String> fields, records, notes)`, with accessors `partNumber()`, `softwareVersion()`, `hardwareNumber()`, `systemName()`, `coding()` and `vin()`. The VIN is unmasked; masking is `scan`'s job.
+  - `EcuIdentification(protocol, Map<Field,String> fields, records, notes)`, with accessors `partNumber()`, `softwareVersion()`, `hardwareNumber()`, `systemName()` and `coding()`. No VIN (never read since 2026-11-17).
   - `RawRecord(id, RawBytes data)`, `RawBytes` (immutable; `hex()`, `asciiText()`).
 - **`DtcCodes`**: `saeJ2012(hi, lo)`, `vagFiveDigit(code16)`, `vagSixDigit(code16)`, `vagUdsNumber(code24)`.
 - **`VagCodeMapping`**: `NONE`, and `P_CODE_HEX` (`P` + the 16-bit value as 4 hex digits, below `0x4000`; confirmed for all 8 engine codes). Which module gets which is `scan`'s choice, through `KwpOptions`.
 - **Test fixture for `scan`:** `testImplementation(testFixtures(project(":diag")))` gives `io.github.samsanjaysatish.macvagdiag.diag.FakeDiagnosticService`:
-  - Create with `kwp()` / `uds()`, then script results with `onStartSession`, `onTesterPresent`, `onReadIdentification`, `onReadDtcs`, `onReadFreezeFrame` and `onReadInstallationList`. Each queues one `DiagResult`; results are used in order, and an unscripted call throws `IllegalStateException`.
+  - Create with `kwp()` / `uds()`, then script results with `onStartSession`, `onTesterPresent`, `onReadIdentification`, `onReadDtcs`, `onReadFreezeFrame`, `onReadInstallationList` and `onReadOdometer`. Each queues one `DiagResult`; results are used in order, and an unscripted call throws `IllegalStateException`.
   - It records `calls()` and offers `allScriptUsed()`.
-  - Helpers: `ok(value)`, `dtcList(Dtc...)`, `identification(protocol, fields)`, `freezeFrame(dtc, RawRecord...)`, `installationList(Entry...)`.
+  - Helpers: `ok(value)`, `dtcList(Dtc...)`, `identification(protocol, fields)`, `freezeFrame(dtc, RawRecord...)`, `installationList(Entry...)`, `odometer(km)`.
   - Like the real services, a session or DTC of the other protocol throws `IllegalArgumentException`.
   - Alternatively, `scan` can run the real services over transport's `FakeDiagnosticChannel`.
 - Package-private: `DiagRequest` (the only way to build a request), `Exchange` (the only code that calls the channel's `request` / `awaitResponse`), `Reads`, `IdentificationReader`, `KwpFreezeFrames` and `KwpMeasuringValue`. There is deliberately **no public "read any DID" method** (root rule 5): the installation list is its own typed operation. Nothing above `diag` can build or send a request.
 
 ## What to build
 - [x] **`DiagnosticService`** interface, with `KwpDiagnosticService` and `UdsDiagnosticService` behind it:
-  - [x] `readIdentification()` → `EcuIdentification`. UDS decodes part number, software version, hardware number, system name, coding and VIN from DIDs. KWP decodes the 46-byte `1A 9B` block (part number, software version, coding, component) and the VIN (`1A 90`). If `1A 9B` is answered negatively (03, 09 and 19 on the car), it reads `22 F1 87` / `F1 89` / `F1 91` / `F1 97` / `06 00` over the KWP channel instead.
+  - [x] `readIdentification()` → `EcuIdentification`. UDS decodes part number, software version, hardware number, system name and coding from DIDs. KWP decodes the 46-byte `1A 9B` block (part number, software version, coding, component). The VIN is never read (`1A 90` / `22 F1 90` dropped 2026-11-17, user's decision). If `1A 9B` is answered negatively (03, 09 and 19 on the car), it reads `22 F1 87` / `F1 89` / `F1 91` / `F1 97` / `06 00` over the KWP channel instead.
   - [x] `readDtcs()` → `DtcList` (the DTCs plus the raw response, left-over bytes and warnings).
   - [x] `readFreezeFrame(Dtc)` → `FreezeFrame`. UDS reads `19 06 [DTC] FF` only, kept raw. KWP reads `12 00 04 hh ll` and decodes status, priority, frequency, reset counter, mileage, time indication, time (with VCDS's +1 s) and the environment triplets.
   - [x] `readInstallationList()` → `InstallationList` (`22 04 A1`, gateway).
+  - [x] `readOdometer()` → `Odometer` (`22 22 03`, 17 Instruments), 2026-11-17.
   - [x] UDS: VCDS sends only `19 06` (no `19 04`), so since 2026-11-16 so do we (`DiagRequest.udsReadSnapshot` stays, allowlisted, unused).
   - [ ] UDS: decode the `19 06` record into fields. The hypothesis below matches VCDS for all 5 records (`CaptureReplayTest.udsFreezeFrames`); still kept raw.
   - [ ] (v2) read measuring blocks / data identifiers.
@@ -92,16 +94,20 @@ Each one passes the approved allowlist unchanged (`RequestAllowlistTest` sweeps 
 |---|---|---|
 | KWP2000 | `10 89` | `startSession(KWP_VW_DIAGNOSTIC)` |
 | KWP2000 | `3E` | `testerPresent()` |
-| KWP2000 | `1A 9B`, then `1A 90` or `22 F1 87`, `22 F1 89`, `22 F1 91`, `22 F1 97`, `22 06 00` | `readIdentification()` |
+| KWP2000 | `1A 9B`, then (only if refused) `22 F1 87`, `22 F1 89`, `22 F1 91`, `22 F1 97`, `22 06 00` | `readIdentification()` |
 | KWP2000 | `18 00 FF 00` (`KwpOptions.ENGINE`), `18 02 FF 00` (default) | `readDtcs()` |
 | KWP2000 | `12 00 04 [hi] [lo]` | `readFreezeFrame(dtc)` |
 | KWP2000 | `22 04 A1` | `readInstallationList()` |
+| KWP2000 | `22 22 03` | `readOdometer()` |
 | UDS | `10 01`, `10 03` | `startSession(UDS_DEFAULT / UDS_EXTENDED)` |
 | UDS | `3E 00` | `testerPresent()` |
-| UDS | `22 F1 87`, `22 F1 89`, `22 F1 91`, `22 F1 97`, `22 06 00`, `22 F1 90` | `readIdentification()` |
+| UDS | `22 F1 87`, `22 F1 89`, `22 F1 91`, `22 F1 97`, `22 06 00` | `readIdentification()` |
 | UDS | `19 02 AE` | `readDtcs()` |
 | UDS | `19 06 [DTC] FF` | `readFreezeFrame(dtc)` |
 | UDS | `22 04 A1` | `readInstallationList()` |
+| UDS | `22 22 03` | `readOdometer()` |
+
+**Never produced:** the VIN reads `1A 90` and `22 F1 90` (user's decision, 2026-11-17; `IdentificationTest` and `RequestAllowlistTest` check they aren't sent).
 
 Allowlisted but **not produced** by `diag` (no need yet): the 2-byte KWP `18 xx` and `12 xx` forms (VCDS never used them), UDS `3E 80`, UDS `19 01 mm`, UDS `19 04` (VCDS never sent it; dropped 2026-11-16).
 
@@ -123,7 +129,7 @@ Allowlisted but **not produced** by `diag` (no need yet): the 2-byte KWP `18 xx`
   - Identification via `22 [DID]` → `62 [DID] [data]`.
 - **KWP2000 (VW):**
   - `18 [status] FF 00` → `58 [count] ([DTC 2 bytes][status])...` (confirmed).
-  - `1A 9B` ECU identification (decoded, see below); `1A 90` VIN (UNCONFIRMED: VCDS never sent it).
+  - `1A 9B` ECU identification (decoded, see below). `1A 90` (VIN) is never sent.
   - VAG codes below `0x4000` map to `P` + 4 hex digits (`VagCodeMapping.P_CODE_HEX`, from the VCDS log). The older offset scheme for higher codes (e.g. 16684 for P0300, from memory) is **not** implemented.
 - ~~The EDC17 may return extended DTC formats~~: it doesn't.
 
@@ -169,7 +175,6 @@ Items answered by the 2026-11-13 capture are above and in the code. What is left
 - **KWP `1A 9B`:**
   - coding type bytes other than `03` (decimal) and `00 00 00 00` (no coding);
   - the 6-byte workshop code, kept raw. From 2 samples, `0A FF E0 00 08 15` = VCDS `WSC 02069 000 90108` fits "last 2 bytes = WSC, bits 31..11 of the first 4 = equipment number";
-  - `1A 90` (VIN): VCDS never sent it, so whether these modules answer it is unknown.
 - **KWP `22` fallback:** single-DID `F1 87` / `F1 89` / `F1 91` on 03 and 09, and `F1 89` on 19 (VCDS asked them only inside its multi-DID request; the replay test answers them from that response). The gateway did answer single `F1 87`, `F1 91`, `F1 97` and `06 00`.
 - **Installation list:** the 4th byte of each entry (bus or group?), and status values other than `00 01 05 19`.
 - **UDS:**
@@ -213,6 +218,7 @@ Items answered by the 2026-11-13 capture are above and in the code. What is left
   - Channel `request` / `awaitResponse` calls outside `Exchange`.
 
   A self-test checks the scanner catches each case. Mutation checks: adding a `can.CanAdapter` import, or disabling the `78` count cap, each made the build fail.
+- [x] `OdometerTest` (2026-11-17): the captured `62 22 03 8F 14`, the KWP form, 0 and `FF FF`, `7F 22 31`, malformed lengths and echoes.
 - [x] `FakeDiagnosticServiceTest`, `ValueTypesTest` (`RawBytes`, `DiagTimings` validation, `Nrc` table, defensive copies).
 - [x] **VCDS log pairs:** VAG number ↔ P-code (`VagCodeMapping.P_CODE_HEX`), KWP status byte ↔ VCDS bits and words, UDS DTC ↔ VCDS's number and wording, KWP freeze-frame fields ↔ VCDS's values (see above).
 - [x] **Replay against the real capture** (`CaptureReplayTest`, 2026-11-16): the real services over real transport channels on a `SimulatedAdapter` with transport's `CaptureEcu` (answers from the VIN-masked capture), compared with `VcdsLog` (can-core test fixtures) of the same scan, per module as scan reads it (session, identification, DTCs, one freeze frame per entry):
@@ -221,7 +227,8 @@ Items answered by the 2026-11-13 capture are above and in the code. What is left
   - **KWP freeze frames:** 01's 12 (84 environment values) from both captures against both logs, and 19's 2, field for field except the date.
   - **UDS freeze frames:** 17's and 77's `19 06` records fit the layout hypothesis (priority, frequency, reset counter, mileage, time; mileage/time absent where VCDS shows none).
   - **Installation list:** 35 entries, the 16 installed = VCDS's status table with its 4-digit bits.
-  - **What VCDS never sent** (pinned): `1A 90` on 01 02 08 44 (answered `7F 1A 12` by the fake), `22 F1 90` on the six UDS modules (`7F 22 31`).
+  - **Nothing VCDS didn't send** (pinned since 2026-11-17: `CaptureEcu.unseen()` is empty; until then the VIN reads `1A 90` / `22 F1 90` were the only ones).
+  - **Odometer:** 17's `22 22 03` → `62 22 03 8F 14` = 366280 km = VCDS's header "Mileage: 366280km" (`odometerFromTheInstruments`).
   - Mutation check: disabling transport's length-flag mask fails 2 of these.
 
 ## Open questions (need the capture and/or the user)

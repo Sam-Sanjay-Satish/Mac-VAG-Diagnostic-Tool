@@ -33,13 +33,14 @@ import org.junit.jupiter.api.Test;
  * <p>Compared: the installed modules and their status (VCDS's table, including 04 from the gateway list and 2E / 56
  * "Cannot be reached"); every fault code (VCDS number, P-code / SAE code, KWP fault type, status bits and VCDS's
  * status words); the engine's and gateway's KWP freeze frames field for field (except the date); UDS freeze frames
- * read; part numbers. Also: every request we sent passed the allowlist and was answered from the capture, except a
- * fixed, documented set VCDS never sent.
+ * read; part numbers; the mileage in VCDS's header (17's {@code 22 22 03}). Also: every request we sent passed the
+ * allowlist and was one VCDS sent too, answered from the capture (since 2026-11-17 we no longer read the VIN, the
+ * only requests VCDS never sent).
  *
  * <p>Known differences, not compared: fault and failure-type texts (VCDS's database; {@code 00 00 16} is "U1066" for
  * VCDS, {@code P0000} by J2012), freeze-frame dates (KWP: undecodable on this car; UDS: VCDS printed the laptop's
- * wrong date), the VIN and mileage in VCDS's header (VCDS reads them with OBD-II {@code 09 02} and {@code 22 22 03},
- * which we don't send), VCDS's extra identification (serials, ASAM data, subsystems, VCID).
+ * wrong date), the VIN in VCDS's header (VCDS reads it with OBD-II {@code 09 02}; we never read the VIN), VCDS's
+ * extra identification (serials, ASAM data, subsystems, VCID).
  */
 class AutoScanReplayTest {
 
@@ -179,11 +180,20 @@ class AutoScanReplayTest {
             compared++;
         }
         assertEquals(13, compared);
-        assertTrue(result.vin().isEmpty(), "VCDS read the VIN with OBD-II 09 02, which we don't send; no module answered 1A 90 / F190");
     }
 
     @Test
-    @DisplayName("every request sent passed the allowlist and was in the capture, except the documented set VCDS never sent")
+    @DisplayName("mileage = VCDS's header 'Mileage: 366280km-227595mi', from 17 Instruments")
+    void mileage() {
+        Mileage m = result.mileage().orElseThrow();
+        assertEquals(VCDS.mileageKm().orElseThrow(), m.kilometres());
+        assertEquals(227595, m.miles());
+        assertEquals(ModuleAddress.INSTRUMENTS, m.source());
+        assertEquals("62 22 03 8F 14", m.raw().hex());
+    }
+
+    @Test
+    @DisplayName("every request sent passed the allowlist and was one VCDS sent too (no VIN reads)")
     void requests() {
         assertEquals(List.of(), ecu.protocolErrors());
         List<String> sent = new ArrayList<>();
@@ -203,21 +213,8 @@ class AutoScanReplayTest {
 
         Map<String, List<String>> unseen = new LinkedHashMap<>();
         ecu.unseen().forEach(u -> unseen.computeIfAbsent(u.link().toString(), k -> new ArrayList<>()).add(u.request() + " -> " + u.answer()));
-        Map<String, List<String>> expected = new LinkedHashMap<>();
-        List<String> kwpVin = List.of("1A 90 -> 7F 1A 12");
-        List<String> udsVin = List.of("22 F1 90 -> 7F 22 31");
-        // In scan order (address order); the VIN reads VCDS never sent.
-        expected.put("TP2.0 01", kwpVin);
-        expected.put("TP2.0 02", kwpVin);
-        expected.put("ISO-TP 732/79C", udsVin);
-        expected.put("TP2.0 2C", kwpVin);
-        expected.put("ISO-TP 715/77F", udsVin);
-        expected.put("ISO-TP 714/77E", udsVin);
-        expected.put("ISO-TP 711/77B", udsVin);
-        expected.put("ISO-TP 731/79B", udsVin);
-        expected.put("TP2.0 09", kwpVin);
-        expected.put("ISO-TP 76B/7D5", udsVin);
-        assertEquals(expected, unseen);
+        assertEquals(Map.of(), unseen, "nothing VCDS didn't send");
+        assertTrue(sent.stream().noneMatch(s -> s.endsWith(" 1A 90") || s.endsWith(" 22 F1 90")), "the VIN is never read");
         assertEquals(Set.of("TP2.0 03", "TP2.0 20", "TP2.0 1F"),
                 Set.copyOf(ecu.derived().stream().map(d -> d.link().toString()).toList()),
                 "F187 / F189 / F191 from VCDS's six-DID read");
@@ -227,7 +224,9 @@ class AutoScanReplayTest {
     @Test
     @DisplayName("the text report has every module, status and fault number VCDS shows (written to build/ for reading)")
     void report() throws IOException {
-        String report = ScanReport.text(result, true);
+        String report = ScanReport.text(result);
+        assertTrue(report.contains("Mileage:      366280 km (227595 mi), from module 17\n"), report);
+        assertTrue(!report.contains("VIN"), report);
         for (VcdsLog.StatusLine s : VCDS.statusTable()) {
             assertTrue(report.contains(s.address()), s.address());
             assertTrue(report.contains(s.text()), s.text());

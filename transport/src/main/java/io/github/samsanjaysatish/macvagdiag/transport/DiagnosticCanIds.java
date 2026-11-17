@@ -25,19 +25,16 @@ final class DiagnosticCanIds {
     /** The receive ID we propose in the setup request ({@code 00 03} → {@code 300}); every module used it (2026-11-13). */
     static final int TP20_TESTER_RX_ID = 0x300;
     /**
-     * The range a module may tell us to transmit on during setup (e.g. {@code 740}). The capture saw {@code 740}
-     * (01), {@code 760} (02), {@code 790} (03) and {@code 7A8} (44) in it. Deliberately narrow, excluding the OBD
-     * functional ID {@code 7DF} and the UDS IDs {@code 7E0..7EF}.
+     * The exact transmit IDs a module may give us during TP 2.0 setup: the seven the target car's modules
+     * negotiated in the 2026-11-13 capture, nothing else. {@code 740} (engine 01), {@code 760} (transmission 02),
+     * {@code 790} (ABS 03), {@code 7A8} (steering assist 44, logical {@code 09}), {@code 32E} (gateway 19, logical
+     * {@code 1F}), {@code 338} (central electrics 09, logical {@code 20}) and {@code 33C} (HVAC 08, logical
+     * {@code 2C}). The last three were approved by the user on 2026-11-15; on 2026-11-17 the user approved
+     * narrowing the old range {@code 740..7BF} to the four IDs seen in it, which also takes {@code 76B} and the
+     * UDS response IDs {@code 77B 77E 77F 79B 79C} out of the TP 2.0 set. A setup reply negotiating anything else
+     * is refused and nothing is sent on it.
      */
-    static final int TP20_NEGOTIATED_TX_MIN = 0x740;
-    static final int TP20_NEGOTIATED_TX_MAX = 0x7BF;
-    /**
-     * TP 2.0 transmit IDs outside that range that modules negotiated in the 2026-11-13 capture, accepted as exact
-     * IDs only (approved by the user 2026-11-15): {@code 32E} (gateway 19, logical {@code 1F}), {@code 338}
-     * (central electrics 09, logical {@code 20}), {@code 33C} (HVAC 08, logical {@code 2C}). A setup reply
-     * negotiating anything else is refused and nothing is sent on it.
-     */
-    static final Set<Integer> TP20_NEGOTIATED_TX_EXACT = Set.of(0x32E, 0x338, 0x33C);
+    static final Set<Integer> TP20_NEGOTIATED_TX = Set.of(0x740, 0x760, 0x790, 0x7A8, 0x32E, 0x338, 0x33C);
 
     /**
      * The known ISO-TP request ID → response ID pairs (11-bit normal addressing). Each request ID is allowed only
@@ -47,9 +44,8 @@ final class DiagnosticCanIds {
      *   <li>From the 2026-11-13 capture, approved by the user 2026-11-15: {@code 714 → 77E} (17 instruments),
      *       {@code 732 → 79C} (05 start authorisation), {@code 715 → 77F} (15 airbag), {@code 711 → 77B}
      *       (25 immobiliser), {@code 731 → 79B} (2B steering column lock), {@code 76B → 7D5} (77 telephone).</li>
-     *   <li>From memory, UNCONFIRMED: {@code 7E0 → 7E8} and {@code 7E1 → 7E9}. On this car they carried no
-     *       diagnostics in the capture (only an OBD-II {@code 09 02} on {@code 7E0}); kept because {@code scan}'s
-     *       module table and demo car still use {@code 7E0}. Removing them is the user's decision.</li>
+     *   <li>{@code 7E0 → 7E8} and {@code 7E1 → 7E9} (from memory) were removed with the user's approval on
+     *       2026-11-17: on this car they carried no diagnostics in the capture, only an OBD-II {@code 09 02}.</li>
      * </ul>
      */
     static final Map<Integer, Integer> ISO_TP_REQUEST_TO_RESPONSE = Map.of(
@@ -58,15 +54,13 @@ final class DiagnosticCanIds {
             0x715, 0x77F,
             0x711, 0x77B,
             0x731, 0x79B,
-            0x76B, 0x7D5,
-            0x7E0, 0x7E8,
-            0x7E1, 0x7E9);
+            0x76B, 0x7D5);
 
     private DiagnosticCanIds() {
     }
 
     static boolean isNegotiableTp20TxId(int id) {
-        return (id >= TP20_NEGOTIATED_TX_MIN && id <= TP20_NEGOTIATED_TX_MAX) || TP20_NEGOTIATED_TX_EXACT.contains(id);
+        return TP20_NEGOTIATED_TX.contains(id);
     }
 
     static boolean isKnownIsoTpRequestId(int id) {

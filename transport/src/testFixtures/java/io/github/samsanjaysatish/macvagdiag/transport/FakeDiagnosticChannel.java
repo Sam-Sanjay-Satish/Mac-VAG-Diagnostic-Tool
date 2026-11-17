@@ -83,9 +83,9 @@ public final class FakeDiagnosticChannel implements DiagnosticChannel {
         return new FakeDiagnosticChannel(new ModuleRoute.Tp20(0x01));
     }
 
-    /** A UDS channel, as if to the engine on {@code 7E0 / 7E8}. */
+    /** A UDS channel, as if to the instruments (17) on {@code 714 / 77E}. */
     public static FakeDiagnosticChannel uds() {
-        return new FakeDiagnosticChannel(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS));
+        return new FakeDiagnosticChannel(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS));
     }
 
     /** Scripts {@code requestHex} to be answered by {@code responsesHex} (each a whole message, bus-style hex). */

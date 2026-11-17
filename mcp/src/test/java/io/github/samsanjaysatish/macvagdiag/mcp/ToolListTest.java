@@ -27,7 +27,7 @@ class ToolListTest {
 
     @Test
     void registeredToolsAreExactlyTheV1List() {
-        try (McpEndpoint endpoint = McpEndpoint.create(new FakeScanService(), McpOptions.defaults())) {
+        try (McpEndpoint endpoint = McpEndpoint.create(new FakeScanService())) {
             assertEquals(EXPECTED, endpoint.tools().stream().map(McpSchema.Tool::name).toList());
             assertEquals(EXPECTED, McpTools.NAMES);
             assertEquals(EXPECTED, endpoint.handlers().definitions().stream().map(McpSchema.Tool::name).toList());
@@ -36,7 +36,7 @@ class ToolListTest {
 
     @Test
     void noToolOffersAnythingButReading() {
-        for (McpSchema.Tool tool : new McpTools(new FakeScanService(), McpOptions.defaults()).definitions()) {
+        for (McpSchema.Tool tool : new McpTools(new FakeScanService()).definitions()) {
             String name = tool.name().toLowerCase(Locale.ROOT);
             for (String word : FORBIDDEN) {
                 assertFalse(name.contains(word), tool.name() + " contains " + word);
@@ -48,7 +48,7 @@ class ToolListTest {
 
     @Test
     void everyToolHasAStrictInputSchemaAndAnOutputSchema() {
-        for (McpSchema.Tool tool : new McpTools(new FakeScanService(), McpOptions.defaults()).definitions()) {
+        for (McpSchema.Tool tool : new McpTools(new FakeScanService()).definitions()) {
             assertEquals("object", tool.inputSchema().get("type"), tool.name());
             assertEquals(false, tool.inputSchema().get("additionalProperties"), tool.name());
             assertNotNull(tool.outputSchema(), tool.name());
@@ -59,7 +59,7 @@ class ToolListTest {
 
     @Test
     void onlyReadFaultCodesTakesAnArgumentAndItIsTheModule() {
-        for (McpSchema.Tool tool : new McpTools(new FakeScanService(), McpOptions.defaults()).definitions()) {
+        for (McpSchema.Tool tool : new McpTools(new FakeScanService()).definitions()) {
             Object properties = tool.inputSchema().get("properties");
             if (tool.name().equals("read_fault_codes")) {
                 assertEquals(List.of("module"), List.copyOf(ToolTesting.map(properties).keySet()));

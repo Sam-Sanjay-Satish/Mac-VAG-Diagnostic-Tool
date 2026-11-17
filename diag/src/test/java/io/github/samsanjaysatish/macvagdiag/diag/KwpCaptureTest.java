@@ -203,17 +203,16 @@ class KwpCaptureTest {
                 new Expected(CaptureBytes.HVAC_ID_9B, "5C0820047BA", "0204", Optional.empty(), "J301  Klimaanlage"),
                 new Expected(CaptureBytes.STEERING_ID_9B, "1K0909144P", "3305", Optional.empty(), "EPS_ZFLS Kl. 70"));
         for (Expected e : all) {
-            FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", e.response()).on("1A 90", "7F 1A 12");
+            FakeDiagnosticChannel ch = FakeDiagnosticChannel.kwp().on("1A 9B", e.response());
             EcuIdentification id = ok(service(ch, KwpOptions.DEFAULT).readIdentification());
-            assertEquals(List.of("1A 9B", "1A 90"), ch.requestsHex());
+            assertEquals(List.of("1A 9B"), ch.requestsHex());
             assertEquals(Optional.of(e.part()), id.partNumber(), e.part());
             assertEquals(Optional.of(e.sw()), id.softwareVersion(), e.part());
             assertEquals(e.coding(), id.coding(), e.part());
             assertEquals(Optional.of(e.component()), id.systemName(), e.part());
-            assertEquals(Optional.empty(), id.vin());
             assertEquals(new RawRecord("1A 9B", RawBytes.ofHex(e.response().substring("5A 9B ".length()))),
                     id.records().getFirst());
-            assertEquals(1, id.notes().size(), id.notes().toString()); // the 1A 90 refusal
+            assertEquals(List.of(), id.notes(), e.part());
         }
     }
 

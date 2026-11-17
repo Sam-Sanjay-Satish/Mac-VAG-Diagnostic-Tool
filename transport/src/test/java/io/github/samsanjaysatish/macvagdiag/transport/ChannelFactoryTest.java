@@ -26,7 +26,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 class ChannelFactoryTest {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(1);
-    private static final ModuleRoute ENGINE_UDS = new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS);
+    private static final ModuleRoute INSTRUMENTS_UDS = new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS);
 
     private final FakeTimeSource time = FakeTimeSource.autoAdvancing();
     private SimulatedAdapter adapter;
@@ -68,10 +68,10 @@ class ChannelFactoryTest {
     @DisplayName("ISO-TP end to end through the factory: 03 22 F1 87 55 55 55 55 → 62 F1 87 ...")
     void isoTpEndToEnd() throws Exception {
         ScriptedBus script = new ScriptedBus(time)
-                .expect(0x7E0, "03 22 F1 87 55 55 55 55", reply(0x7E8, "05 62 F1 87 30 33 AA AA"));
+                .expect(0x714, "03 22 F1 87 55 55 55 55", reply(0x77E, "05 62 F1 87 30 33 AA AA"));
         ChannelFactory factory = ChannelFactory.create(adapter(script, AdapterMode.NORMAL), time);
 
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         assertInstanceOf(GuardedChannel.class, ch);
         assertEquals(ApplicationProtocol.UDS, ch.protocol());
         assertEquals(new Response.Received(Hex.parse("62 F1 87 30 33")), ch.request(Hex.parse("22 F1 87"), TIMEOUT));
@@ -82,9 +82,9 @@ class ChannelFactoryTest {
     @DisplayName("KWP2000 over ISO-TP: the guard uses the route's protocol (10 89 allowed, 10 03 refused)")
     void kwpOverIsoTp() throws Exception {
         ScriptedBus script = new ScriptedBus(time)
-                .expect(0x7E0, "02 10 89 55 55 55 55 55", reply(0x7E8, "02 50 89 AA AA AA AA AA"));
+                .expect(0x714, "02 10 89 55 55 55 55 55", reply(0x77E, "02 50 89 AA AA AA AA AA"));
         ChannelFactory factory = ChannelFactory.create(adapter(script, AdapterMode.NORMAL), time);
-        DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.KWP2000));
+        DiagnosticChannel ch = factory.open(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.KWP2000));
         assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("10 03"), TIMEOUT));
         assertEquals(new Response.Received(Hex.parse("50 89")), ch.request(Hex.parse("10 89"), TIMEOUT));
         script.assertComplete();
@@ -94,11 +94,11 @@ class ChannelFactoryTest {
     @DisplayName("only one channel at a time: a second open throws CHANNEL_ALREADY_OPEN until the first is closed")
     void oneChannelAtATime() throws Exception {
         ChannelFactory factory = ChannelFactory.create(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
-        DiagnosticChannel first = factory.open(ENGINE_UDS);
+        DiagnosticChannel first = factory.open(INSTRUMENTS_UDS);
         assertEquals(TransportException.Reason.CHANNEL_ALREADY_OPEN,
-                assertThrows(TransportException.class, () -> factory.open(ENGINE_UDS)).reason());
+                assertThrows(TransportException.class, () -> factory.open(INSTRUMENTS_UDS)).reason());
         first.close();
-        DiagnosticChannel second = factory.open(ENGINE_UDS);
+        DiagnosticChannel second = factory.open(INSTRUMENTS_UDS);
         assertTrue(second.isOpen());
     }
 
@@ -111,12 +111,13 @@ class ChannelFactoryTest {
                 assertThrows(TransportException.class, () -> factory.open(new ModuleRoute.Tp20(0x01))).reason());
         listenOnly.close();
         assertEquals(TransportException.Reason.ADAPTER_NOT_READY,
-                assertThrows(TransportException.class, () -> factory.open(ENGINE_UDS)).reason());
+                assertThrows(TransportException.class, () -> factory.open(INSTRUMENTS_UDS)).reason());
         assertEquals(List.of(), listenOnly.sentFrames());
     }
 
     @ParameterizedTest(name = "ISO-TP route {0}/{1} is refused: DISALLOWED_CAN_ID, nothing sent")
-    @CsvSource({"7DF, 7E8", "7E0, 7E9", "123, 12B", "710, 77A", "200, 201", "740, 300", "7E8, 7E0"})
+    @CsvSource({"7DF, 7E8", "7E0, 7E8", "7E1, 7E9", "7E0, 7E9", "123, 12B", "710, 77A", "200, 201", "740, 300",
+            "7E8, 7E0"})
     void unknownIsoTpRoutesRefused(String request, String response) {
         ChannelFactory factory = ChannelFactory.create(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
         ModuleRoute route = new ModuleRoute.IsoTp(Integer.parseInt(request, 16), Integer.parseInt(response, 16),
@@ -154,12 +155,12 @@ class ChannelFactoryTest {
                         events.add("rejected " + route + " " + Hex.format(rejection.payload()));
                     }
                 });
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         ch.request(Hex.parse("22 F1 90"), TIMEOUT);
         assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("2E F1 90 00"), TIMEOUT));
         assertEquals(List.of(
-                "sending ISO-TP 7E0/7E8 UDS 22 F1 90 (frames so far: 0)",
-                "rejected ISO-TP 7E0/7E8 UDS 2E F1 90 00"), events);
+                "sending ISO-TP 714/77E UDS 22 F1 90 (frames so far: 0)",
+                "rejected ISO-TP 714/77E UDS 2E F1 90 00"), events);
     }
 
     @Test
@@ -173,7 +174,7 @@ class ChannelFactoryTest {
                         throw auditDown;
                     }
                 });
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         assertSame(auditDown, assertThrows(IllegalStateException.class, () -> ch.request(Hex.parse("22 F1 90"), TIMEOUT)));
         assertEquals(List.of(), adapter.sentFrames());
     }
@@ -189,7 +190,7 @@ class ChannelFactoryTest {
                         throw listenerBug;
                     }
                 });
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         ForbiddenRequestException e = assertThrows(ForbiddenRequestException.class,
                 () -> ch.request(Hex.parse("11 01"), TIMEOUT));
         assertEquals(List.of(listenerBug), List.of(e.getSuppressed()));
@@ -208,18 +209,18 @@ class ChannelFactoryTest {
                         payload[0] = 0x2E; // a listener scribbling on its copy can't change what is sent
                     }
                 });
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         byte[] payload = Hex.parse("22 F1 90");
         ch.request(payload, TIMEOUT);
         assertEquals(List.of("22 F1 90"), audited);
-        assertEquals(List.of(CanFrame.standardHex(0x7E0, "03 22 F1 90 55 55 55 55")), adapter.sentFrames());
+        assertEquals(List.of(CanFrame.standardHex(0x714, "03 22 F1 90 55 55 55 55")), adapter.sentFrames());
     }
 
     @Test
     @DisplayName("negative or null timeout is refused; a closed channel answers CHANNEL_CLOSED without sending")
     void timeoutAndClosed() throws Exception {
         ChannelFactory factory = ChannelFactory.create(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
-        DiagnosticChannel ch = factory.open(ENGINE_UDS);
+        DiagnosticChannel ch = factory.open(INSTRUMENTS_UDS);
         assertThrows(IllegalArgumentException.class, () -> ch.request(Hex.parse("22 F1 90"), Duration.ofMillis(-1)));
         assertThrows(NullPointerException.class, () -> ch.request(Hex.parse("22 F1 90"), null));
         ch.close();
@@ -240,11 +241,14 @@ class ChannelFactoryTest {
             "6FF", "700", "701",
             // neighbours of the TP 2.0 tx IDs approved 2026-11-15 (32E, 338, 33C)
             "32D", "32F", "337", "339", "33B", "33D",
-            // neighbours of the ISO-TP request IDs approved 2026-11-15 (711, 714, 715, 731, 732; 76B is in 740..7BF)
-            "710", "712", "713", "716", "730", "733",
-            // 7D5 (telephone's response) is receive-only. The other new response IDs (77B 77E 77F 79B 79C) lie
-            // inside the TP 2.0 range 740..7BF and so were already permitted transmit IDs; pairing is enforced at open.
-            "7D5", "7D4", "7D6"})
+            // neighbours of the ISO-TP request IDs approved 2026-11-15 (711, 714, 715, 731, 732, 76B)
+            "710", "712", "713", "716", "730", "733", "76A", "76C",
+            // the UDS response IDs are receive-only (since 2026-11-17 none of them lies in a TP 2.0 range)
+            "77B", "77E", "77F", "79B", "79C", "7D5", "7D4", "7D6",
+            // the old TP 2.0 range 740..7BF, narrowed 2026-11-17 to 740 760 790 7A8: its ends and the neighbours
+            "741", "73F", "750", "75F", "761", "78F", "791", "7A7", "7A9", "7BF",
+            // 7E0..7E9 (UDS engine/transmission from memory), removed 2026-11-17
+            "7E0", "7E1", "7E9"})
     void busGateRefusesIdsOutsideTheSet(String id) {
         BusGate gate = new BusGate(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
         TransportException e = assertThrows(TransportException.class, () -> gate.permit(Integer.parseInt(id, 16)));
@@ -255,14 +259,14 @@ class ChannelFactoryTest {
     @DisplayName("BusGate sends only on the one permitted ID, never on 29-bit IDs")
     void busGateSendsOnlyOnPermittedId() {
         BusGate gate = new BusGate(adapter(FakeEcus.isoTp(), AdapterMode.NORMAL), time);
-        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x7E0, "02 3E 00")),
+        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x714, "02 3E 00")),
                 "nothing permitted yet");
-        gate.permit(0x7E0);
-        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x7E1, "02 3E 00")),
-                "7E1 is in the set but not this channel's ID");
-        assertThrows(TransportException.class, () -> gate.send(CanFrame.extendedHex(0x7E0, "02 3E 00")));
+        gate.permit(0x714);
+        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x715, "02 3E 00")),
+                "715 is in the set but not this channel's ID");
+        assertThrows(TransportException.class, () -> gate.send(CanFrame.extendedHex(0x714, "02 3E 00")));
         gate.permit(0x740);
-        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x7E0, "02 3E 00")),
+        assertThrows(TransportException.class, () -> gate.send(CanFrame.standardHex(0x714, "02 3E 00")),
                 "a new permit replaces the old one");
         assertEquals(List.of(), adapter.sentFrames());
         gate.send(CanFrame.standardHex(0x740, "A3"));
@@ -270,7 +274,7 @@ class ChannelFactoryTest {
     }
 
     @Test
-    @DisplayName("the fixed transmit set: 200, 32E 338 33C, 711 714 715 731 732, 740..7BF, 7E0, 7E1 and nothing else")
+    @DisplayName("the fixed transmit set: 200, 32E 338 33C, 711 714 715 731 732, 740 760 76B 790 7A8 and nothing else")
     void fixedIdSet() {
         List<Integer> permitted = new ArrayList<>();
         for (int id = 0; id <= 0x7FF; id++) {
@@ -278,17 +282,12 @@ class ChannelFactoryTest {
                 permitted.add(id);
             }
         }
-        List<Integer> expected = new ArrayList<>(List.of(0x200, 0x32E, 0x338, 0x33C, 0x711, 0x714, 0x715, 0x731, 0x732));
-        for (int id = 0x740; id <= 0x7BF; id++) {
-            expected.add(id); // includes 76B
-        }
-        expected.add(0x7E0);
-        expected.add(0x7E1);
-        assertEquals(expected, permitted);
+        assertEquals(List.of(0x200, 0x32E, 0x338, 0x33C, 0x711, 0x714, 0x715, 0x731, 0x732, 0x740, 0x760, 0x76B,
+                0x790, 0x7A8), permitted);
     }
 
     @Test
-    @DisplayName("TP 2.0 negotiable tx IDs: 32E 338 33C (exact) and 740..7BF, nothing else")
+    @DisplayName("TP 2.0 negotiable tx IDs: exactly 32E 338 33C 740 760 790 7A8")
     void negotiableTp20TxIds() {
         List<Integer> negotiable = new ArrayList<>();
         for (int id = 0; id <= 0x7FF; id++) {
@@ -296,18 +295,14 @@ class ChannelFactoryTest {
                 negotiable.add(id);
             }
         }
-        List<Integer> expected = new ArrayList<>(List.of(0x32E, 0x338, 0x33C));
-        for (int id = 0x740; id <= 0x7BF; id++) {
-            expected.add(id);
-        }
-        assertEquals(expected, negotiable);
+        assertEquals(List.of(0x32E, 0x338, 0x33C, 0x740, 0x760, 0x790, 0x7A8), negotiable);
     }
 
     @Test
-    @DisplayName("ISO-TP pairs are exactly 711/77B 714/77E 715/77F 731/79B 732/79C 76B/7D5 7E0/7E8 7E1/7E9")
+    @DisplayName("ISO-TP pairs are exactly 711/77B 714/77E 715/77F 731/79B 732/79C 76B/7D5")
     void isoTpPairsPinned() {
         assertEquals(java.util.Map.of(0x711, 0x77B, 0x714, 0x77E, 0x715, 0x77F, 0x731, 0x79B, 0x732, 0x79C,
-                0x76B, 0x7D5, 0x7E0, 0x7E8, 0x7E1, 0x7E9), DiagnosticCanIds.ISO_TP_REQUEST_TO_RESPONSE);
+                0x76B, 0x7D5), DiagnosticCanIds.ISO_TP_REQUEST_TO_RESPONSE);
     }
 
     @ParameterizedTest(name = "ISO-TP pair {0} → {1} from the capture opens and sends on {0} only")

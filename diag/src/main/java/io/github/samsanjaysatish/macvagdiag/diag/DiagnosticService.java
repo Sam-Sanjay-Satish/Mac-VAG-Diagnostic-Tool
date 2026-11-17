@@ -83,4 +83,11 @@ public interface DiagnosticService {
      * returned as {@link DiagResult.Negative}.
      */
     DiagResult<InstallationList> readInstallationList() throws InterruptedException;
+
+    /**
+     * The odometer, {@code 22 22 03} (one request). On the target car 17 Instruments has it (UDS, 2026-11-13
+     * capture); a module without it answers negatively ({@code 7F 22 31} expected), returned as
+     * {@link DiagResult.Negative}.
+     */
+    DiagResult<Odometer> readOdometer() throws InterruptedException;
 }

@@ -124,8 +124,9 @@ class Tp20ChannelTest {
         assertEquals(1, adapter.sentFrames().size());
     }
 
-    @ParameterizedTest(name = "module {0} negotiating tester tx {1} (seen 2026-11-13, approved 2026-11-15) opens")
-    @CsvSource({"1F, 2E 03, 32E", "20, 38 03, 338", "2C, 3C 03, 33C"})
+    @ParameterizedTest(name = "module {0} negotiating tester tx {1} (seen 2026-11-13) opens")
+    @CsvSource({"1F, 2E 03, 32E", "20, 38 03, 338", "2C, 3C 03, 33C",
+            "01, 40 07, 740", "02, 60 07, 760", "03, 90 07, 790", "09, A8 07, 7A8"})
     void capturedTp20TxIdsOpen(String address, String txField, String tx) throws Exception {
         int addr = Integer.parseInt(address, 16);
         int txId = Integer.parseInt(tx, 16);
@@ -144,7 +145,12 @@ class Tp20ChannelTest {
 
     @ParameterizedTest(name = "setup negotiating tester tx {1} is refused and nothing is sent on it")
     @CsvSource({"2D 03, 32D", "2F 03, 32F", "37 03, 337", "39 03, 339", "3B 03, 33B", "3D 03, 33D",
-            "3F 07, 73F", "C0 07, 7C0", "00 07, 700", "DF 07, 7DF", "14 07, 714", "32 07, 732"})
+            "3F 07, 73F", "C0 07, 7C0", "00 07, 700", "DF 07, 7DF", "14 07, 714", "32 07, 732",
+            // the old range 740..7BF, narrowed to 740 760 790 7A8 on 2026-11-17 (user's approval)
+            "41 07, 741", "50 07, 750", "61 07, 761", "6B 07, 76B", "7E 07, 77E", "8F 07, 78F", "91 07, 791",
+            "9C 07, 79C", "A7 07, 7A7", "A9 07, 7A9", "BF 07, 7BF",
+            // 7E0 / 7E1, removed from the ISO-TP pairs on 2026-11-17
+            "E0 07, 7E0", "E1 07, 7E1"})
     void unlistedTp20TxIdsRefused(String txField, String tx) {
         script.expect(0x200, "1F C0 00 10 00 03 01", reply(0x21F, "00 D0 00 03 " + txField + " 01"));
         TransportException e = assertThrows(TransportException.class,

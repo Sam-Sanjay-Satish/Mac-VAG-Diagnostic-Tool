@@ -94,10 +94,10 @@ final class FakeEcus {
         };
     }
 
-    /** An ISO-TP module on 7E0 → 7E8 answering single-frame requests with single-frame responses. */
+    /** An ISO-TP module on 714 → 77E answering single-frame requests with single-frame responses. */
     static SimulatedAdapter.Responder isoTp() {
         return sent -> {
-            if (sent.id() != 0x7E0 || sent.length() == 0 || (sent.dataByte(0) >> 4) != 0) {
+            if (sent.id() != 0x714 || sent.length() == 0 || (sent.dataByte(0) >> 4) != 0) {
                 return List.of();
             }
             int length = sent.dataByte(0) & 0x0F;
@@ -110,7 +110,7 @@ final class FakeEcus {
             Arrays.fill(frame, (byte) 0xAA);
             frame[0] = (byte) response.length;
             System.arraycopy(response, 0, frame, 1, response.length);
-            return List.of(Reply.now(new CanFrame(0x7E8, false, frame)));
+            return List.of(Reply.now(new CanFrame(0x77E, false, frame)));
         };
     }
 }

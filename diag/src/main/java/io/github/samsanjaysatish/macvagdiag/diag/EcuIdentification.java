@@ -20,7 +20,7 @@ public record EcuIdentification(ApplicationProtocol protocol, Map<Field, String>
         List<String> notes) {
 
     /** Decoded identification fields. */
-    public enum Field { PART_NUMBER, SOFTWARE_VERSION, HARDWARE_NUMBER, SYSTEM_NAME, CODING, VIN }
+    public enum Field { PART_NUMBER, SOFTWARE_VERSION, HARDWARE_NUMBER, SYSTEM_NAME, CODING }
 
     public EcuIdentification {
         Objects.requireNonNull(protocol, "protocol");
@@ -51,10 +51,5 @@ public record EcuIdentification(ApplicationProtocol protocol, Map<Field, String>
 
     public Optional<String> coding() {
         return field(Field.CODING);
-    }
-
-    /** The VIN, unmasked; masking for reports is {@code scan}'s job. */
-    public Optional<String> vin() {
-        return field(Field.VIN);
     }
 }

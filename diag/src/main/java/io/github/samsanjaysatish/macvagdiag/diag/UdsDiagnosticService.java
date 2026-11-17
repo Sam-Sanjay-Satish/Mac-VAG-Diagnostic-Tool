@@ -45,12 +45,13 @@ public final class UdsDiagnosticService implements DiagnosticService {
     public static final int DID_HARDWARE_NUMBER = 0xF191;
     /** ISO 14229-1 systemNameOrEngineType. */
     public static final int DID_SYSTEM_NAME = 0xF197;
-    /** ISO 14229-1 VIN. */
-    public static final int DID_VIN = 0xF190;
     /** UNCONFIRMED: VW coding value. Not an ISO DID; from memory. */
     public static final int DID_VW_CODING = 0x0600;
 
-    /** The DIDs read by {@link #readIdentification}, in order, and the field each decodes to. UNCONFIRMED set. */
+    /**
+     * The DIDs read by {@link #readIdentification}, in order, and the field each decodes to. UNCONFIRMED set. The
+     * VIN ({@code F190}) is deliberately never read (user's decision, 2026-11-17; VCDS never read it either).
+     */
     public static final SequencedMap<Integer, EcuIdentification.Field> IDENTIFICATION_DIDS;
 
     static {
@@ -60,7 +61,6 @@ public final class UdsDiagnosticService implements DiagnosticService {
         m.put(DID_HARDWARE_NUMBER, EcuIdentification.Field.HARDWARE_NUMBER);
         m.put(DID_SYSTEM_NAME, EcuIdentification.Field.SYSTEM_NAME);
         m.put(DID_VW_CODING, EcuIdentification.Field.CODING);
-        m.put(DID_VIN, EcuIdentification.Field.VIN);
         IDENTIFICATION_DIDS = Collections.unmodifiableSequencedMap(m);
     }
 
@@ -184,6 +184,15 @@ public final class UdsDiagnosticService implements DiagnosticService {
         DiagResult<RawBytes> r = exchange.run(DiagRequest.udsReadDataByIdentifier(InstallationList.DID));
         if (r instanceof DiagResult.Success<RawBytes> s) {
             return InstallationList.parse(s.value());
+        }
+        return r.failure();
+    }
+
+    @Override
+    public DiagResult<Odometer> readOdometer() throws InterruptedException {
+        DiagResult<RawBytes> r = exchange.run(DiagRequest.udsReadDataByIdentifier(Odometer.DID));
+        if (r instanceof DiagResult.Success<RawBytes> s) {
+            return Odometer.parse(s.value());
         }
         return r.failure();
     }

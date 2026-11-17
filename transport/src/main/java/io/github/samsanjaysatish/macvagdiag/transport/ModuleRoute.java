@@ -46,8 +46,8 @@ public sealed interface ModuleRoute {
      * An ISO-TP (ISO 15765-2) link with 11-bit normal addressing: requests on {@code requestId}, responses on
      * {@code responseId}. Normally UDS; KWP2000 over ISO-TP is possible.
      *
-     * <p>UNCONFIRMED: engine {@code 7E0 → 7E8} (and transmission {@code 7E1 → 7E9}) on this car. The factory
-     * only accepts the request/response pairs in {@link DiagnosticCanIds}.
+     * <p>On the target car: the six UDS modules' pairs from the 2026-11-13 capture (e.g. instruments
+     * {@code 714 → 77E}). The factory only accepts the request/response pairs in {@link DiagnosticCanIds}.
      */
     record IsoTp(int requestId, int responseId, ApplicationProtocol protocol) implements ModuleRoute {
 

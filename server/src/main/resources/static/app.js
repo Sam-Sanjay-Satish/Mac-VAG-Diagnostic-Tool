@@ -203,7 +203,6 @@ function identification(id) {
     ["Software", id.softwareVersion],
     ["Hardware", id.hardwareNumber],
     ["Coding", id.coding],
-    ["VIN", id.vin],
   ].filter(([, value]) => value);
   const box = el("div", {});
   if (facts.length) {
@@ -269,7 +268,7 @@ function renderSummary(job) {
   const facts = [
     ["Started", new Date(job.startedAt).toLocaleString()],
     ["Duration", (r.durationMs / 1000).toFixed(1) + " s"],
-    ["VIN", r.vin ? r.vin + (r.vinSource ? "  (from module " + r.vinSource + ")" : "") : "not read"],
+    ["Mileage", r.mileage ? r.mileage.kilometres + " km (" + r.mileage.miles + " mi), from module " + r.mileage.module : "not read"],
     ["Modules", r.modulesChecked + " checked, " + r.modulesResponding + " responding, " + r.modulesWithFaults + " with faults"],
     ["Fault codes", String(r.faultCodes)],
   ];
@@ -277,7 +276,6 @@ function renderSummary(job) {
   $("summary-notes").replaceChildren(...r.notes.map((n) => el("li", {}, n)));
   const report = "/api/scans/" + encodeURIComponent(job.id) + "/report.txt";
   $("report-link").href = report;
-  $("report-masked-link").href = report + "?maskVin=true";
 }
 
 // ---- start --------------------------------------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 package io.github.samsanjaysatish.macvagdiag.server;
 
 import io.github.samsanjaysatish.macvagdiag.mcp.McpEndpoint;
-import io.github.samsanjaysatish.macvagdiag.mcp.McpOptions;
 import io.github.samsanjaysatish.macvagdiag.scan.ScanService;
 import jakarta.servlet.http.HttpServlet;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
@@ -20,8 +19,8 @@ import org.springframework.context.annotation.Configuration;
 class McpHostingConfiguration {
 
     @Bean(destroyMethod = "close")
-    McpEndpoint mcpEndpoint(ScanService scanService, MacVagDiagProperties properties) {
-        return McpEndpoint.create(scanService, McpOptions.defaults().withMaskVin(properties.mcpMaskVin()));
+    McpEndpoint mcpEndpoint(ScanService scanService) {
+        return McpEndpoint.create(scanService);
     }
 
     @Bean

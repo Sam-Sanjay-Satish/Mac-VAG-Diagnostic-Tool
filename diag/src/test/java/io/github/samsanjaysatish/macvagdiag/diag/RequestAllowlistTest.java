@@ -163,13 +163,13 @@ class RequestAllowlistTest {
     void servicesSendOnlyAllowlisted() throws InterruptedException {
         FakeTimeSource time = new FakeTimeSource();
         FakeDiagnosticChannel kwp = FakeDiagnosticChannel.kwp()
-                .on("10 89", "50 89").on("3E", "7E").on("1A 9B", "5A 9B 00").on("1A 90", "7F 1A 31")
+                .on("10 89", "50 89").on("3E", "7E").on("1A 9B", "5A 9B 00")
                 .on("1A 9B", "7F 1A 11");
         for (int did : KwpDiagnosticService.FALLBACK_DIDS.keySet()) {
             kwp.on(Hex.format(new byte[] {0x22, (byte) (did >> 8), (byte) did}), "7F 22 31");
         }
         kwp.on("18 02 FF 00", "58 01 41 2C A3").on("12 00 04 41 2C", "7F 12 31").on("22 04 A1", "62 04 A1")
-                .on("18 00 FF 00", "58 00");
+                .on("18 00 FF 00", "58 00").on("22 22 03", "7F 22 31");
         KwpDiagnosticService k = new KwpDiagnosticService(kwp, time);
         k.startSession(DiagnosticSession.KWP_VW_DIAGNOSTIC);
         k.testerPresent();
@@ -178,12 +178,13 @@ class RequestAllowlistTest {
         DtcList kd = k.readDtcs().valueIfSuccess().orElseThrow();
         k.readFreezeFrame(kd.dtcs().getFirst());
         k.readInstallationList();
+        k.readOdometer();
         new KwpDiagnosticService(kwp, time, DiagTimings.DEFAULTS, KwpOptions.ENGINE).readDtcs();
 
         FakeDiagnosticChannel uds = FakeDiagnosticChannel.uds()
                 .on("10 03", "50 03 00 32 01 F4").on("10 01", "50 01 00 32 01 F4").on("3E 00", "7E 00")
                 .on("19 02 AE", "59 02 FF 04 01 00 2F")
-                .on("19 06 04 01 00 FF", "7F 19 31").on("22 04 A1", "7F 22 31");
+                .on("19 06 04 01 00 FF", "7F 19 31").on("22 04 A1", "7F 22 31").on("22 22 03", "62 22 03 8F 14");
         for (int did : UdsDiagnosticService.IDENTIFICATION_DIDS.keySet()) {
             uds.on(Hex.format(new byte[] {0x22, (byte) (did >> 8), (byte) did}), "7F 22 31");
         }
@@ -195,11 +196,15 @@ class RequestAllowlistTest {
         DtcList ud = u.readDtcs().valueIfSuccess().orElseThrow();
         u.readFreezeFrame(ud.dtcs().getFirst());
         u.readInstallationList();
+        u.readOdometer();
 
-        assertEquals(List.of("10 89", "3E", "1A 9B", "1A 90", "1A 9B", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97",
-                "22 06 00", "18 02 FF 00", "12 00 04 41 2C", "22 04 A1", "18 00 FF 00"), kwp.requestsHex());
+        assertEquals(List.of("10 89", "3E", "1A 9B", "1A 9B", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97",
+                "22 06 00", "18 02 FF 00", "12 00 04 41 2C", "22 04 A1", "22 22 03", "18 00 FF 00"), kwp.requestsHex());
         assertEquals(List.of("10 03", "10 01", "3E 00", "22 F1 87", "22 F1 89", "22 F1 91", "22 F1 97", "22 06 00",
-                "22 F1 90", "19 02 AE", "19 06 04 01 00 FF", "22 04 A1"), uds.requestsHex());
+                "19 02 AE", "19 06 04 01 00 FF", "22 04 A1", "22 22 03"), uds.requestsHex());
+        for (String hex : List.of(kwp.requestsHex(), uds.requestsHex()).stream().flatMap(List::stream).toList()) {
+            assertTrue(!hex.equals("1A 90") && !hex.equals("22 F1 90"), "the VIN is never read: " + hex);
+        }
         for (String hex : kwp.requestsHex()) {
             assertTrue(RequestGuard.isAllowed(ApplicationProtocol.KWP2000, Hex.parse(hex)), hex);
         }

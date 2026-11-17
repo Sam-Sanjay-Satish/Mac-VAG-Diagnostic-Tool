@@ -142,7 +142,7 @@ class GuardRejectionTest {
         });
         ModuleRoute route = protocol == KWP2000
                 ? new ModuleRoute.Tp20(FakeEcus.TP20_ADDRESS)
-                : new ModuleRoute.IsoTp(0x7E0, 0x7E8, UDS);
+                : new ModuleRoute.IsoTp(0x714, 0x77E, UDS);
         channel = factory.open(route);
         adapter.clearSentFrames(); // TP 2.0 setup frames; from here on, nothing may reach the wire
         return channel;
@@ -215,7 +215,7 @@ class GuardRejectionTest {
         DiagnosticChannel ch = openChannel(UDS);
         Response response = ch.request(Hex.parse("3E 80"), Duration.ofMillis(50));
         assertInstanceOf(Response.TimedOut.class, response);
-        assertEquals(List.of("7E0 [8] 02 3E 80 55 55 55 55 55"), adapter.sentFrames().stream().map(Object::toString).toList());
+        assertEquals(List.of("714 [8] 02 3E 80 55 55 55 55 55"), adapter.sentFrames().stream().map(Object::toString).toList());
     }
 
     @Test

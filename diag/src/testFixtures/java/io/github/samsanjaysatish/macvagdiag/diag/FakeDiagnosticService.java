@@ -21,14 +21,15 @@ import java.util.OptionalInt;
  * <p>Each {@code on...} call queues one result for that operation; results are used in order, and an operation
  * with nothing queued throws {@link IllegalStateException} (so a test notices an unexpected call). Every call is
  * recorded in {@link #calls()}. Scriptable operations: {@code onStartSession}, {@code onTesterPresent},
- * {@code onReadIdentification}, {@code onReadDtcs}, {@code onReadFreezeFrame}, {@code onReadInstallationList}. Like the real services, a session or DTC of the other protocol throws
+ * {@code onReadIdentification}, {@code onReadDtcs}, {@code onReadFreezeFrame}, {@code onReadInstallationList}, {@code onReadOdometer}. Like the real services, a session or DTC of the other protocol throws
  * {@link IllegalArgumentException}. Not thread-safe (the real services aren't either).
  *
  * <p>Get it with {@code testImplementation(testFixtures(project(":diag")))}.
  */
 public final class FakeDiagnosticService implements DiagnosticService {
 
-    public enum Operation { START_SESSION, TESTER_PRESENT, READ_IDENTIFICATION, READ_DTCS, READ_FREEZE_FRAME, READ_INSTALLATION_LIST }
+    public enum Operation { START_SESSION, TESTER_PRESENT, READ_IDENTIFICATION, READ_DTCS, READ_FREEZE_FRAME, READ_INSTALLATION_LIST,
+        READ_ODOMETER }
 
     /** One recorded call; {@code argument} is the session or DTC, or null. */
     public record Call(Operation operation, Object argument) {
@@ -44,6 +45,7 @@ public final class FakeDiagnosticService implements DiagnosticService {
     private final Deque<DiagResult<DtcList>> dtcLists = new ArrayDeque<>();
     private final Deque<DiagResult<FreezeFrame>> freezeFrames = new ArrayDeque<>();
     private final Deque<DiagResult<InstallationList>> installationLists = new ArrayDeque<>();
+    private final Deque<DiagResult<Odometer>> odometers = new ArrayDeque<>();
     private final List<Call> calls = new ArrayList<>();
 
     public FakeDiagnosticService(ApplicationProtocol protocol) {
@@ -77,6 +79,11 @@ public final class FakeDiagnosticService implements DiagnosticService {
     /** An installation list of {@code [address, tp20, status, group]} entries, with no raw response. */
     public static InstallationList installationList(InstallationList.Entry... entries) {
         return new InstallationList(List.of(entries), RawBytes.EMPTY, RawBytes.EMPTY, List.of());
+    }
+
+    /** An odometer reading of {@code kilometres}, with no raw response. */
+    public static Odometer odometer(int kilometres) {
+        return new Odometer(kilometres, RawBytes.EMPTY);
     }
 
     /** A freeze frame holding raw records only. */
@@ -113,6 +120,11 @@ public final class FakeDiagnosticService implements DiagnosticService {
 
     public FakeDiagnosticService onReadInstallationList(DiagResult<InstallationList> result) {
         installationLists.add(Objects.requireNonNull(result));
+        return this;
+    }
+
+    public FakeDiagnosticService onReadOdometer(DiagResult<Odometer> result) {
+        odometers.add(Objects.requireNonNull(result));
         return this;
     }
 
@@ -160,6 +172,11 @@ public final class FakeDiagnosticService implements DiagnosticService {
         return next(Operation.READ_INSTALLATION_LIST, null, installationLists);
     }
 
+    @Override
+    public DiagResult<Odometer> readOdometer() {
+        return next(Operation.READ_ODOMETER, null, odometers);
+    }
+
     private <T> DiagResult<T> next(Operation op, Object argument, Deque<DiagResult<T>> queue) {
         calls.add(new Call(op, argument));
         DiagResult<T> r = queue.poll();
@@ -177,6 +194,6 @@ public final class FakeDiagnosticService implements DiagnosticService {
     /** True if every scripted result was used. */
     public boolean allScriptUsed() {
         return sessions.isEmpty() && testerPresents.isEmpty() && identifications.isEmpty() && dtcLists.isEmpty()
-                && freezeFrames.isEmpty() && installationLists.isEmpty();
+                && freezeFrames.isEmpty() && installationLists.isEmpty() && odometers.isEmpty();
     }
 }

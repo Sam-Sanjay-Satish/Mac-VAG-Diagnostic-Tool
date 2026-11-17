@@ -5,6 +5,7 @@ import static io.github.samsanjaysatish.macvagdiag.mcp.ToolTesting.map;
 import static io.github.samsanjaysatish.macvagdiag.mcp.ToolTesting.ok;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,18 +14,19 @@ import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
 import io.github.samsanjaysatish.macvagdiag.scan.SampleScanData;
 import io.github.samsanjaysatish.macvagdiag.scan.SessionStatus;
 import io.github.samsanjaysatish.macvagdiag.scan.ToolCallRecord;
+import io.github.samsanjaysatish.macvagdiag.scan.VehicleInfo;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /** Each tool against {@link FakeScanService} ({@link SampleScanData}): JSON shape, units, timestamps, raw IDs, VIN. */
 class ToolHandlersTest {
 
     private static final String AT = SampleScanData.AT.toString();
-    private static final String MASKED_VIN = "SAMPLEVIN00******";
 
     private final FakeScanService scan = new FakeScanService();
-    private final McpTools tools = new McpTools(scan, McpOptions.defaults());
+    private final McpTools tools = new McpTools(scan);
 
     @Test
     void getSessionStatusReportsAdapterIgnitionAndEngineAsValues() {
@@ -141,47 +143,48 @@ class ToolHandlersTest {
     }
 
     @Test
-    void vehicleInfoMasksTheVinEverywhereByDefault() {
+    void vehicleInfoGivesTheMileageInKmAndNoVin() {
         var r = tools.call("get_vehicle_info", Map.of());
         Map<String, Object> out = ok(tools, "get_vehicle_info", r);
 
-        Map<String, Object> vin = map(out.get("vin"));
-        assertEquals("vin", vin.get("id"));
-        assertEquals(MASKED_VIN, vin.get("value"));
-        assertEquals("01", vin.get("source"));
-        assertNull(vin.get("unit"));
-        assertEquals(AT, vin.get("timestamp"));
-        assertEquals(true, out.get("vinMasked"));
+        Map<String, Object> mileage = map(out.get("mileage"));
+        assertEquals("mileage", mileage.get("id"));
+        assertEquals(SampleScanData.MILEAGE_KM, ((Number) mileage.get("value")).intValue());
+        assertEquals("km", mileage.get("unit"));
+        assertEquals("17", mileage.get("source"));
+        assertEquals("76708 mi", mileage.get("detail"));
+        assertNotNull(mileage.get("timestamp"));
         Map<String, Object> engine = map(list(out.get("modules")).getFirst());
         Map<String, Object> ident = map(engine.get("identification"));
         Map<String, Object> raw = map(list(ident.get("raw")).getFirst());
-        assertEquals("1A 90", raw.get("id"));
-        assertEquals("(masked: contains the VIN)", raw.get("raw"));
+        assertEquals("1A 9B", raw.get("id"));
         Map<String, Object> partNumber = list(ident.get("values")).stream().map(ToolTesting::map)
                 .filter(v -> v.get("id").equals("partNumber")).findFirst().orElseThrow();
         assertEquals("03L906018XX", partNumber.get("value"));
         assertNull(partNumber.get("unit"));
         assertEquals(AT, partNumber.get("timestamp"));
-        assertFalse(ToolTesting.text(r).contains(SampleScanData.VIN), "unmasked VIN leaked");
-        assertFalse(ToolTesting.toJson(r.structuredContent()).contains(SampleScanData.VIN), "unmasked VIN leaked");
-        assertFalse(ToolTesting.toJson(r.structuredContent()).contains("53 41 4D 50 4C 45"), "VIN hex leaked");
+        assertFalse(ToolTesting.toJson(r.structuredContent()).toLowerCase(java.util.Locale.ROOT).contains("vin"),
+                "no VIN field anywhere");
     }
 
     @Test
-    void vehicleInfoShowsTheVinWhenTheUserTurnedMaskingOff() {
-        McpTools unmasked = new McpTools(scan, McpOptions.defaults().withMaskVin(false));
-        Map<String, Object> out = ok(unmasked, "get_vehicle_info", unmasked.call("get_vehicle_info", Map.of()));
-        assertEquals(SampleScanData.VIN, map(out.get("vin")).get("value"));
-        assertEquals(false, out.get("vinMasked"));
+    void vehicleInfoWithoutAMileageSaysNotRead() {
+        VehicleInfo none = new VehicleInfo(Optional.empty(), SampleScanData.vehicleInfo().modules(), SampleScanData.AT,
+                false);
+        scan.vehicleInfo(none);
+        Map<String, Object> mileage = map(ok(tools, "get_vehicle_info", tools.call("get_vehicle_info", Map.of()))
+                .get("mileage"));
+        assertNull(mileage.get("value"));
+        assertEquals("km", mileage.get("unit"));
+        assertEquals("not read", mileage.get("detail"));
     }
 
     @Test
-    void readFaultCodesMasksTheVinInIdentificationToo() {
-        var masked = tools.call("read_fault_codes", Map.of("module", "01"));
-        assertFalse(ToolTesting.text(masked).contains(SampleScanData.VIN));
-        assertTrue(ToolTesting.text(masked).contains(MASKED_VIN));
-        McpTools unmasked = new McpTools(scan, new McpOptions(false));
-        assertTrue(ToolTesting.text(unmasked.call("read_fault_codes", Map.of("module", "01"))).contains(SampleScanData.VIN));
+    void readFaultCodesHasNoVinField() {
+        var r = tools.call("read_fault_codes", Map.of("module", "01"));
+        Map<String, Object> out = ok(tools, "read_fault_codes", r);
+        assertFalse(out.containsKey("vinMasked"));
+        assertFalse(ToolTesting.toJson(r.structuredContent()).toLowerCase(java.util.Locale.ROOT).contains("vin"));
     }
 
     @Test
@@ -197,7 +200,6 @@ class ToolHandlersTest {
         assertTrue(audit.stream().allMatch(c -> c.outcome().equals("ok")));
         assertEquals(Map.of("module", "01"), audit.get(2).arguments());
         assertEquals("module 01 Engine: FAULTS, 1 fault(s)", audit.get(2).summary());
-        assertTrue(audit.get(3).summary().contains("(masked)"));
-        assertTrue(audit.stream().noneMatch(c -> c.summary().contains(SampleScanData.VIN)), "no VIN in summaries");
+        assertEquals("mileage 123450 km from 17, 2 module(s) asked", audit.get(3).summary());
     }
 }

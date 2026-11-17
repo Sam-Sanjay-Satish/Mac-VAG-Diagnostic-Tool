@@ -51,7 +51,7 @@ public interface ScanService extends AutoCloseable {
     /** One module's fault codes with status and freeze frames. No identification is read. */
     ModuleResult readFaultCodes(Caller caller, ModuleAddress module) throws InterruptedException;
 
-    /** The VIN and identification of modules 01, 17 and 19 (UNCONFIRMED which hold the VIN). */
+    /** The identification of modules 01, 17 and 19, and the mileage from 17. The VIN is never read. */
     VehicleInfo vehicleInfo(Caller caller) throws InterruptedException;
 
     /**

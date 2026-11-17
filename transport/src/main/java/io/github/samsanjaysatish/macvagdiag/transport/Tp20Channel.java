@@ -161,10 +161,9 @@ final class Tp20Channel implements RawChannel {
             }
             if (!DiagnosticCanIds.isNegotiableTp20TxId(testerTx) || testerRx == testerTx) {
                 String msg = String.format("Module %02X negotiated transmit ID %03X (receive %03X), outside the "
-                        + "expected TP 2.0 set %s and %03X..%03X; nothing sent on it", moduleAddress, testerTx,
-                        testerRx, DiagnosticCanIds.TP20_NEGOTIATED_TX_EXACT.stream().sorted()
-                                .map(id -> String.format("%03X", id)).toList(),
-                        DiagnosticCanIds.TP20_NEGOTIATED_TX_MIN, DiagnosticCanIds.TP20_NEGOTIATED_TX_MAX);
+                        + "expected TP 2.0 set %s; nothing sent on it", moduleAddress, testerTx, testerRx,
+                        DiagnosticCanIds.TP20_NEGOTIATED_TX.stream().sorted()
+                                .map(id -> String.format("%03X", id)).toList());
                 log.error(msg);
                 throw new TransportException(TransportException.Reason.DISALLOWED_CAN_ID, msg);
             }

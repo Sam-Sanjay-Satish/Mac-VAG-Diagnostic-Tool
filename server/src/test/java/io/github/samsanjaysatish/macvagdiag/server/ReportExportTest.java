@@ -17,8 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -46,22 +45,20 @@ class ReportExportTest {
         mvc.perform(postJson("/api/scans")).andExpect(status().isAccepted());
     }
 
-    @ParameterizedTest(name = "maskVin={0} → {1}")
-    @CsvSource({"false, sample-report.txt, macvagdiag-scan-sample.txt",
-            "true, sample-report-vin-masked.txt, macvagdiag-scan-sample-vin-masked.txt"})
-    @DisplayName("report download matches the snapshot, as a UTF-8 text attachment")
-    void reportSnapshot(boolean maskVin, String snapshot, String fileName) throws Exception {
-        MvcResult r = mvc.perform(get("/api/scans/scan-sample/report.txt" + (maskVin ? "?maskVin=true" : "")))
+    @Test
+    @DisplayName("report download matches the snapshot, as a UTF-8 text attachment, with the mileage and no VIN")
+    void reportSnapshot() throws Exception {
+        String snapshot = "sample-report.txt";
+        String fileName = "macvagdiag-scan-sample.txt";
+        MvcResult r = mvc.perform(get("/api/scans/scan-sample/report.txt"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "text/plain;charset=UTF-8"))
                 .andExpect(header().string("Content-Disposition", "attachment; filename=\"" + fileName + "\""))
                 .andReturn();
         String actual = r.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertEquals(expected(snapshot, actual), actual);
-        assertEquals(maskVin, !actual.contains(SampleScanData.VIN));
-        if (maskVin) {
-            assertTrue(actual.contains("SAMPLEVIN00******  (masked)"), actual);
-        }
+        assertTrue(actual.contains("Mileage:      123450 km (76708 mi), from module 17\n"), actual);
+        assertFalse(actual.contains("VIN"), actual);
         assertFalse(actual.contains("DEMO DATA"), "sample data is not demo data");
     }
 

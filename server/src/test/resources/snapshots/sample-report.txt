@@ -2,7 +2,7 @@ macvagdiag Auto-Scan (read-only)
 ==============================================================================
 Date:         2026-01-01 10:00:00 UTC
 Duration:     6.0 s
-VIN:          SAMPLEVIN00000000  from module 01
+Mileage:      123450 km (76708 mi), from module 17
 Requested by: web
 Modules:      16 checked, 13 responding, 3 with faults, 3 fault code(s)
 Discovery:    the gateway's installation list
@@ -34,7 +34,6 @@ Address 01: Engine                         Status: 1 fault
    Component:    SAMPLE R4 2.0L TDI
    Software:     9971
    Coding:       0001234
-   VIN:          SAMPLEVIN00000000
    1 Fault Found:
    001025 (P0401) - status E2 (11100010): type 002, MIL ON
               Record: 04 01 E2
@@ -82,6 +81,7 @@ Address 15: Airbags                        Status: OK
 Address 17: Instruments                    Status: 1 fault
    Protocol:     UDS over ISO-TP (714/77E)
    Gateway:      Malfunction 0010
+   Mileage:      123450 km (76708 mi), from module 17
    1 Fault Found:
    U0115-00 - status 08 (00001000): Intermittent - Confirmed - Tested Since Memory Clear
               Record: C1 15 00 08

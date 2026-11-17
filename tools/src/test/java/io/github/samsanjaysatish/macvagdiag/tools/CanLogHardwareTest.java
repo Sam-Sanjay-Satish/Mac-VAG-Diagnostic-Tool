@@ -11,11 +11,16 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Manual only ({@code ./gradlew :tools:hardwareTest}), with the CANable on the running car's diagnostic
  * CAN: logs 10 seconds in listen-only mode through the real program. Never run by Claude or CI.
+ *
+ * <p>The diagnostic CAN behind the gateway is silent without a tester (2026-11-13 baseline: ignition on, no VCDS,
+ * 60 s, 0 frames), so this runs only with {@code MACVAGDIAG_EXPECT_FRAMES=1}, while VCDS is talking (e.g. during
+ * an Auto-Scan).
  *
  * <p>Needs the CANable on the patched firmware {@code macvagdiag-silent-1} ({@code firmware/canable2}). On
  * stock firmware SlcanAdapter refuses LISTEN_ONLY after sending only {@code C} and {@code V}, so can-log
@@ -29,6 +34,8 @@ class CanLogHardwareTest {
 
     @Test
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    @EnabledIfEnvironmentVariable(named = "MACVAGDIAG_EXPECT_FRAMES", matches = "1",
+            disabledReason = "needs VCDS talking on the car's diagnostic CAN; set MACVAGDIAG_EXPECT_FRAMES=1")
     void logsTenSecondsFromTheCarInListenOnly() throws IOException {
         Path out = dir.resolve("hardware-test.log");
         int code = Main.run(new String[] {"can-log", "--duration", "10", "--output", out.toString(),
@@ -36,6 +43,6 @@ class CanLogHardwareTest {
         assertEquals(0, code);
         Capture capture = CaptureReader.read(out);
         assertEquals("LISTEN_ONLY", capture.metadata().get("mode"));
-        assertFalse(capture.frames().isEmpty(), "the running car's bus is never silent for 10 s");
+        assertFalse(capture.frames().isEmpty(), "no frames in 10 s; was VCDS talking on the bus?");
     }
 }

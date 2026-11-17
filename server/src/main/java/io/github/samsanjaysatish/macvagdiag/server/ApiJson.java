@@ -5,8 +5,9 @@ import io.github.samsanjaysatish.macvagdiag.scan.AutoScanResult;
 import io.github.samsanjaysatish.macvagdiag.scan.EcuInfo;
 import io.github.samsanjaysatish.macvagdiag.scan.FaultCode;
 import io.github.samsanjaysatish.macvagdiag.scan.FreezeFrameData;
-import io.github.samsanjaysatish.macvagdiag.scan.LimitHit;
 import io.github.samsanjaysatish.macvagdiag.scan.GatewayStatus;
+import io.github.samsanjaysatish.macvagdiag.scan.LimitHit;
+import io.github.samsanjaysatish.macvagdiag.scan.Mileage;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAvailability;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleLink;
@@ -64,17 +65,26 @@ final class ApiJson {
     record Link(String type, String protocol, String description) {
     }
 
-    /** {@code GET /api/modules/{address}/faults}, and each module of a scan. */
+    /**
+     * {@code GET /api/modules/{address}/faults}, and each module of a scan. {@code mileage}: the odometer, on 17 in
+     * an Auto-Scan (else null).
+     */
     record ModuleReport(String address, String name, String status, String statusText, boolean responded, Link link,
             String gatewayStatus, Identification identification, List<Fault> faults, boolean faultListComplete,
-            List<String> notes, Limited limitHit, int requests, String startedAt, String finishedAt) {
+            List<String> notes, Limited limitHit, int requests, String startedAt, String finishedAt,
+            MileageReading mileage) {
     }
 
+    /** No VIN: it is never read (user's decision, 2026-11-17). */
     record Identification(String protocol, String partNumber, String softwareVersion, String hardwareNumber,
-            String systemName, String coding, String vin, List<Raw> raw, List<String> notes) {
+            String systemName, String coding, List<Raw> raw, List<String> notes) {
     }
 
-    /** An undecoded value with the ID of the request it came from, e.g. {@code 22 F1 90}. */
+    /** The odometer: km as read, miles rounded down as VCDS prints them, the module it came from. */
+    record MileageReading(int kilometres, long miles, String module, String readAt) {
+    }
+
+    /** An undecoded value with the ID of the request it came from, e.g. {@code 22 F1 87}. */
     record Raw(String id, String hex, String text) {
     }
 
@@ -111,7 +121,7 @@ final class ApiJson {
     }
 
     /** {@code installationList}: the gateway's list (empty if it wasn't read and the fixed list was probed). */
-    record Summary(String finishedAt, long durationMs, boolean cancelled, boolean demo, String vin, String vinSource,
+    record Summary(String finishedAt, long durationMs, boolean cancelled, boolean demo, MileageReading mileage,
             int modulesChecked, int modulesResponding, int modulesWithFaults, int faultCodes, List<String> notes,
             boolean fromInstallationList, List<GatewayEntry> installationList) {
     }
@@ -154,7 +164,11 @@ final class ApiJson {
                 r.identification().map(ApiJson::identification).orElse(null),
                 r.faults().stream().map(ApiJson::fault).toList(), r.faultListComplete(), r.notes(),
                 r.limitHit().map(ApiJson::limited).orElse(null), r.requests(), time(r.startedAt()),
-                time(r.finishedAt()));
+                time(r.finishedAt()), r.mileage().map(ApiJson::mileage).orElse(null));
+    }
+
+    static MileageReading mileage(Mileage m) {
+        return new MileageReading(m.kilometres(), m.miles(), m.source().hex(), time(m.readAt()));
     }
 
     private static String statusText(ModuleResult r) {
@@ -171,7 +185,7 @@ final class ApiJson {
     static Identification identification(EcuInfo e) {
         return new Identification(e.protocol().name(), e.partNumber().orElse(null), e.softwareVersion().orElse(null),
                 e.hardwareNumber().orElse(null), e.systemName().orElse(null), e.coding().orElse(null),
-                e.vin().orElse(null), raw(e.raw()), e.notes());
+                raw(e.raw()), e.notes());
     }
 
     private static List<Raw> raw(List<RawValue> values) {
@@ -228,7 +242,7 @@ final class ApiJson {
 
     private static Summary summary(AutoScanResult r) {
         return new Summary(time(r.finishedAt()), Duration.between(r.startedAt(), r.finishedAt()).toMillis(),
-                r.cancelled(), r.demo(), r.vin().orElse(null), r.vinSource().map(ModuleAddress::hex).orElse(null),
+                r.cancelled(), r.demo(), r.mileage().map(ApiJson::mileage).orElse(null),
                 r.modules().size(), r.respondingModules().size(),
                 (int) r.modules().stream().filter(m -> !m.faults().isEmpty()).count(), r.faultCount(), r.notes(),
                 r.fromInstallationList(), r.installationList().stream().map(g -> new GatewayEntry(g.hex(),

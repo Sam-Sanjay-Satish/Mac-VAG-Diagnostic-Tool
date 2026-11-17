@@ -20,7 +20,7 @@ import java.util.Map;
  * CAN-frame level so the whole stack (scan → diag → transport → adapter) runs without a car. Used by
  * {@link ScanServiceFactory#demo} and by scan's full-stack tests.
  *
- * <p><b>The data is made up</b> (VIN {@value #VIN}, part numbers, fault codes, serials: none from a real car). The
+ * <p><b>The data is made up</b> (part numbers, fault codes, serials, mileage: none from a real car). The
  * <b>shape</b> follows the target car as the 2026-11-13 capture showed it, so a demo scan runs the same paths as a
  * real one: the module table and CAN IDs of {@link ModuleAddress}, the request shapes VCDS used and the response
  * layouts diag decodes.
@@ -29,8 +29,7 @@ import java.util.Map;
  *   <li><b>19 Gateway</b> (TP 2.0 {@code 1F}, tx {@code 32E}): answers the installation list {@code 22 04 A1} with
  *       every module below, refuses {@code 1A 9B} ({@code 7F 1A 11}) and is identified with {@code 22} DIDs, like
  *       the real gateway. Fault 01044 (intermittent) with a freeze frame.</li>
- *   <li><b>01 Engine</b> (TP 2.0 {@code 01}, tx {@code 740}): KWP2000, {@code 1A 9B} block and the VIN on
- *       {@code 1A 90}. {@code 18 00 FF 00}: P0401 stored twice and P2463; each {@code 12 00 04 04 01} returns the
+ *   <li><b>01 Engine</b> (TP 2.0 {@code 01}, tx {@code 740}): KWP2000, {@code 1A 9B} block. {@code 18 00 FF 00}: P0401 stored twice and P2463; each {@code 12 00 04 04 01} returns the
  *       next stored record.</li>
  *   <li>02 (tx {@code 760}), 08 ({@code 2C}, tx {@code 33C}), 44 ({@code 09}, tx {@code 7A8}): KWP2000, no faults.
  *       08 answers its first DTC read on each channel with {@code 7F 18 21} (busy) to show the back-off.</li>
@@ -38,13 +37,15 @@ import java.util.Map;
  *       {@code 1A 9B}, identified with {@code 22} DIDs. 03 has 01314. 09 answers each {@code 22} with a response
  *       pending {@code 7F 22 78} first, sent with the TP 2.0 length flag ({@code 80 03}) as the real BCM does.</li>
  *   <li>UDS over ISO-TP: 05, 15, 17, 25, 2B, 77 on their CAN ID pairs. 17 has B1A10-12 and U0115-00 with
- *       {@code 19 06} extended data records (no {@code 19 04}, like VCDS); the rest have none.</li>
+ *       {@code 19 06} extended data records (no {@code 19 04}, like VCDS), and the odometer {@code 22 22 03}
+ *       ({@value #ODOMETER_KM} km); the rest have none.</li>
  *   <li>2E and 56: listed by the gateway as "cannot be reached", and silent. 04: listed OK, no link.</li>
  * </ul>
  */
 final class DemoCar implements SimulatedAdapter.Responder {
 
-    static final String VIN = "DEMOVIN0000000000";
+    /** 17's made-up odometer: {@code 62 22 03 30 39} = 12345 × 10 km. */
+    static final int ODOMETER_KM = 123450;
     private static final int SETUP_ID = 0x200;
     private static final int TESTER_RX = 0x300; // what transport proposes in the setup
     private static final String TIMING_REPLY = "A1 0F 8A FF 4A FF";
@@ -54,7 +55,7 @@ final class DemoCar implements SimulatedAdapter.Responder {
 
     /** A KWP2000 module on TP 2.0. {@code block9B} null = refuses {@code 1A 9B} and answers {@code 22} DIDs. */
     private record KwpModule(int logicalAddress, int testerTx, String block9B, Map<String, String> dids,
-            boolean reportsVin, String dtcRequest, String dtcResponse, int busyDtcReadsPerChannel,
+            String dtcRequest, String dtcResponse, int busyDtcReadsPerChannel,
             boolean pendingFirst) {
     }
 
@@ -63,19 +64,19 @@ final class DemoCar implements SimulatedAdapter.Responder {
     static {
         // Engine: 18 00 FF 00. P0401 (04 01) stored twice, MIL on, type 002; P2463 (24 63) intermittent, type 003.
         KWP.put(0x01, new KwpModule(0x01, 0x740, block9B("03L906018XX", "9971", 0x017234, "DEMO R4 2.0L TDI"),
-                Map.of(), true, "18 00 FF 00", "58 03 04 01 E2 04 01 E2 24 63 23", 0, false));
+                Map.of(), "18 00 FF 00", "58 03 04 01 E2 04 01 E2 24 63 23", 0, false));
         KWP.put(0x02, new KwpModule(0x02, 0x760, block9B("02E300012D", "0412", 0x000021, "DEMO DSG"),
-                Map.of(), false, "18 02 FF 00", "58 00", 0, false));
+                Map.of(), "18 02 FF 00", "58 00", 0, false));
         KWP.put(0x03, new KwpModule(0x03, 0x790, null, dids("1K0907379AC", "ESP DEMO MK60"),
-                false, "18 02 FF 00", "58 01 05 22 63", 0, false)); // 01314, type 003
+                "18 02 FF 00", "58 01 05 22 63", 0, false)); // 01314, type 003
         KWP.put(0x2C, new KwpModule(0x2C, 0x33C, block9B("5K0907044BT", "0117", 0x000140, "DEMO CLIMATRONIC"),
-                Map.of(), false, "18 02 FF 00", "58 00", 1, false));
+                Map.of(), "18 02 FF 00", "58 00", 1, false));
         KWP.put(0x20, new KwpModule(0x20, 0x338, null, dids("1K0937049N", "BCM DEMO"),
-                false, "18 02 FF 00", "58 00", 0, true));
+                "18 02 FF 00", "58 00", 0, true));
         KWP.put(0x1F, new KwpModule(0x1F, 0x32E, null, dids("7N0907530AL", "GATEWAY DEMO"),
-                false, "18 02 FF 00", "58 01 04 14 23", 0, false)); // 01044, intermittent, type 003
+                "18 02 FF 00", "58 01 04 14 23", 0, false)); // 01044, intermittent, type 003
         KWP.put(0x09, new KwpModule(0x09, 0x7A8, block9B("1K0909144J", "3501", 0x000101, "DEMO EPS"),
-                Map.of(), false, "18 02 FF 00", "58 00", 0, false));
+                Map.of(), "18 02 FF 00", "58 00", 0, false));
     }
 
     /**
@@ -100,6 +101,8 @@ final class DemoCar implements SimulatedAdapter.Responder {
                 "59 02 FF 9A 10 12 09 C1 15 00 08"));
         instruments.put("19 06 9A 10 12 FF", "59 06 9A 10 12 09 01 05 02");
         instruments.put("19 06 C1 15 00 FF", "7F 19 31");
+        int count = ODOMETER_KM / 10;
+        instruments.put("22 22 03", String.format("62 22 03 %02X %02X", count >> 8, count & 0xFF));
         UDS.put(0x714, new UdsModule(0x714, 0x77E, Map.copyOf(instruments)));
         uds(0x711, 0x77B, "5K0953234", "IMMO DEMO", "59 02 FF");
         uds(0x731, 0x79B, "1K0905861", "ELV DEMO", "59 02 FF");
@@ -294,7 +297,6 @@ final class DemoCar implements SimulatedAdapter.Responder {
             case "10 89" -> "50 89";
             case "3E" -> "7E";
             case "1A 9B" -> m.block9B() == null ? "7F 1A 11" : "5A 9B " + m.block9B();
-            case "1A 90" -> m.reportsVin() ? "5A 90 " + ascii(VIN) : "7F 1A 12";
             default -> request.startsWith("12 00 04 ") ? kwpFreezeFrame(ch, request.substring(9))
                     : String.format("7F %s 11", request.substring(0, 2));
         };

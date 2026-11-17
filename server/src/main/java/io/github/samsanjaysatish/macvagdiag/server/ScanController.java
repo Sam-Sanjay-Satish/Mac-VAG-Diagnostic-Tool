@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -82,9 +81,9 @@ final class ScanController {
         return ApiJson.job(find(id), scan.isDemo());
     }
 
-    /** The text report (VCDS-like layout) as a download; {@code maskVin=true} masks the VIN everywhere. */
+    /** The text report (VCDS-like layout) as a download. It has no VIN: the VIN is never read. */
     @GetMapping("/scans/{id}/report.txt")
-    ResponseEntity<String> report(@PathVariable String id, @RequestParam(defaultValue = "false") boolean maskVin) {
+    ResponseEntity<String> report(@PathVariable String id) {
         AutoScanJob job = find(id);
         if (!job.isDone()) {
             throw new ApiException(HttpStatus.CONFLICT, "SCAN_NOT_FINISHED",
@@ -92,11 +91,10 @@ final class ScanController {
         }
         AutoScanResult result = job.result().orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "SCAN_FAILED",
                 "the Auto-Scan failed, so there is no report; see GET /api/scans/" + job.id()));
-        String file = "macvagdiag-" + safeName(job.id()) + (result.demo() ? "-demo" : "")
-                + (maskVin ? "-vin-masked" : "") + ".txt";
+        String file = "macvagdiag-" + safeName(job.id()) + (result.demo() ? "-demo" : "") + ".txt";
         return ResponseEntity.ok().contentType(TEXT_UTF8)
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file).build().toString())
-                .body(ScanReport.text(result, maskVin));
+                .body(ScanReport.text(result));
     }
 
     private AutoScanJob find(String id) {

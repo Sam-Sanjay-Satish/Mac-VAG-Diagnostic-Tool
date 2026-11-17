@@ -31,9 +31,9 @@ import java.util.Optional;
  *       none) and a {@code timestamp}: a <b>value</b> {@code {id, value, unit, timestamp}}, a <b>byte</b>
  *       {@code {id, raw, value, unit, timestamp}} or a <b>raw</b> record {@code {id, raw, text, unit, timestamp}}.
  *       Never a bare number.</li>
- *   <li>Undecoded bytes keep the ID of the request they came from, e.g. {@code {"id": "22 F1 90", "raw": "57 56 ..."}}.</li>
+ *   <li>Undecoded bytes keep the ID of the request they came from, e.g. {@code {"id": "22 F1 87", "raw": "35 43 ..."}}.</li>
  *   <li>Fault codes carry no labels or descriptions (out of scope).</li>
- *   <li>VIN masking happens before this, on the scan records ({@code maskVin()}).</li>
+ *   <li>There is no VIN: it is never read (user's decision, 2026-11-17).</li>
  * </ul>
  */
 final class ToolOutput {
@@ -103,11 +103,10 @@ final class ToolOutput {
 
     // ------------------------------------------------------------------ read_fault_codes
 
-    static Map<String, Object> faultCodes(ModuleResult r, boolean demo, boolean vinMasked) {
+    static Map<String, Object> faultCodes(ModuleResult r, boolean demo) {
         Instant at = r.finishedAt();
         Map<String, Object> out = obj();
         out.put("demo", demo);
-        out.put("vinMasked", vinMasked);
         out.put("module", module(r.module()));
         out.put("status", r.status().name());
         out.put("statusDescription", r.status().description());
@@ -172,13 +171,14 @@ final class ToolOutput {
 
     // ------------------------------------------------------------------ get_vehicle_info
 
-    static Map<String, Object> vehicleInfo(VehicleInfo v, boolean vinMasked) {
+    static Map<String, Object> vehicleInfo(VehicleInfo v) {
         Instant at = v.readAt();
         Map<String, Object> out = obj();
         out.put("demo", v.demo());
-        out.put("vinMasked", vinMasked);
-        out.put("vin", value("vin", v.vin().orElse(null), at).source(v.vinSource().map(ModuleAddress::hex).orElse(null))
-                .map);
+        out.put("mileage", v.mileage()
+                .map(m -> value("mileage", m.kilometres(), m.readAt()).unit("km").source(m.source().hex())
+                        .detail(m.miles() + " mi").map)
+                .orElseGet(() -> value("mileage", null, at).unit("km").detail("not read").map));
         List<Object> modules = new ArrayList<>();
         for (ModuleIdentity m : v.modules()) {
             Map<String, Object> e = module(m.module());
@@ -203,7 +203,6 @@ final class ToolOutput {
         addIfPresent(values, "hardwareNumber", e.hardwareNumber(), at);
         addIfPresent(values, "systemName", e.systemName(), at);
         addIfPresent(values, "coding", e.coding(), at);
-        addIfPresent(values, "vin", e.vin(), at);
         Map<String, Object> out = obj();
         out.put("protocol", e.protocol().name());
         out.put("values", values);
@@ -271,6 +270,11 @@ final class ToolOutput {
 
         Value source(String source) {
             map.put("source", source);
+            return this;
+        }
+
+        Value unit(String unit) {
+            map.put("unit", unit);
             return this;
         }
     }

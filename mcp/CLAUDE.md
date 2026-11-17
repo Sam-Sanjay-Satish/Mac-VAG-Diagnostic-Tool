@@ -17,12 +17,12 @@ This is a **thin front end over `ScanService`**. It adds tool definitions, argum
 
 ## Endpoint contract (what `server` mounts)
 ```java
-McpEndpoint mcp = McpEndpoint.create(scanService, McpOptions.defaults()); // once at startup
+McpEndpoint mcp = McpEndpoint.create(scanService); // once at startup
 HttpServlet servlet = mcp.servlet();   // mount at mcp.path() == McpEndpoint.PATH == "/mcp", async support ON
 mcp.close();                           // on shutdown, before scanService.close(); idempotent
 ```
-- `public final class McpEndpoint implements AutoCloseable`: `static create(ScanService, McpOptions)`, `HttpServlet servlet()`, `String path()`, `void close()`, constant `PATH = "/mcp"`.
-- `public record McpOptions(boolean maskVin)`: `defaults()` (masked), `withMaskVin(boolean)`. User config only; no tool argument touches it.
+- `public final class McpEndpoint implements AutoCloseable`: `static create(ScanService)`, `HttpServlet servlet()`, `String path()`, `void close()`, constant `PATH = "/mcp"`.
+- No options: `McpOptions` (VIN masking, its only setting) was removed on 2026-11-17 with the VIN itself (user's decision: the VIN is never read).
 - The endpoint doesn't own the `ScanService`: `close()` ends MCP sessions and the transport's timers only.
 - The servlet needs **async support** (the SDK answers requests as server-sent events on an `AsyncContext`); Spring Boot's `ServletRegistrationBean` has it on by default. The SDK checks that the request URI ends with `/mcp`.
 - Clients: `http://localhost:<port>/mcp`, e.g. `claude mcp add --transport http macvagdiag http://localhost:8080/mcp`.
@@ -38,7 +38,7 @@ mcp.close();                           // on shutdown, before scanService.close(
 | `get_session_status` | Adapter connected? Ignition on? Engine running? (ignition/engine `UNKNOWN` for now, see scan) | v1 ✔ |
 | `list_modules` | Known modules and whether each responds | v1 ✔ |
 | `read_fault_codes(module)` | Codes, status, freeze frame as structured JSON | v1 ✔ |
-| `get_vehicle_info` | ECU part numbers, software versions, VIN (masked by default) | v1 ✔ |
+| `get_vehicle_info` | ECU part numbers, software versions, mileage (17's odometer, km); no VIN | v1 ✔ |
 | `list_available_data(module)` | Which live values can be read | v2 |
 | `read_live_data(module, values)` | One snapshot of chosen values | v2 |
 | `record_live_data(module, values, seconds)` | Record over time; return a summary + file path for the full data | v2 |
@@ -48,13 +48,13 @@ All four are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempote
 ### Schemas summary (`ToolSchemas`, JSON Schema 2020-12)
 - **Inputs:** `additionalProperties: false` everywhere. `read_fault_codes`: `{"module": string}`, required, `enum` of the known addresses (`01 02 03 04 05 08 09 15 17 19 25 2B 2E 44 56 77`, from `ModuleAddress.known()`), description lists their names. The other three take `{}`.
 - **Outputs:** one closed schema per tool (`additionalProperties: false`) with shared `$defs`; the SDK validates every result against it, so a mismatch shows up as a failing test.
-  - **value** `{id, value, unit, timestamp}` (+ optional `detail`, `source`): adapter/ignition/engine state, VIN, identification fields (`partNumber`, `softwareVersion`, `hardwareNumber`, `systemName`, `coding`, `vin`), decoded freeze-frame fields.
+  - **value** `{id, value, unit, timestamp}` (+ optional `detail`, `source`): adapter/ignition/engine state, mileage (`unit` `km`, `source` `17`, `detail` e.g. `76708 mi`, or `value` null and `detail` `not read`), identification fields (`partNumber`, `softwareVersion`, `hardwareNumber`, `systemName`, `coding`), decoded freeze-frame fields.
   - **byte** `{id, raw, value, unit, timestamp}`: fault status byte (`"status byte"`, raw `"2F"`, value 47), UDS failure type.
-  - **raw** `{id, raw, text, unit, timestamp}`: undecoded records keep the request they came from as `id`, e.g. `{"id": "22 F1 90", "raw": "57 56 ..."}`, `{"id": "19 06 04 01 00 FF", "raw": "01 01 F4 0D 2A"}`.
+  - **raw** `{id, raw, text, unit, timestamp}`: undecoded records keep the request they came from as `id`, e.g. `{"id": "22 F1 87", "raw": "35 43 ..."}`, `{"id": "19 06 04 01 00 FF", "raw": "01 01 F4 0D 2A"}`.
   - `get_session_status`: `adapter`, `ignition`, `engine` (values with `detail`), `demo`, `timestamp`, `hint` (next step).
   - `list_modules`: `demo`, `modules[] {address, name, reachability RESPONDING|NOT_RESPONDING|NOT_CHECKED|NOT_INSTALLED, protocol, link, gatewayStatus (string|null, e.g. "Malfunction 0010"), message, timestamp}`, `counts {responding, notResponding, notChecked, notInstalled}`, `note` (explains gatewayStatus and the reachability values).
-  - `read_fault_codes`: `demo`, `vinMasked`, `module {address, name}`, `status` (scan's `ModuleStatus`, incl. `GATEWAY_STATUS_ONLY`), `statusDescription`, `protocol`, `link`, `faultCount`, `faultListComplete`, `faults[] {id (display code, e.g. P0401-00), code, protocol, record, status (byte), statusText, statusFlags, failureType (byte|null), obdCode, freezeFrame {availability, message, records[raw], fields[value], responses, notes}, unit, timestamp}`, `identification` (or null), `notes`, `limitHit {limit, description, retryAfterSeconds, message}` (or null), `requests`, `startedAt`, `timestamp`.
-  - `get_vehicle_info`: `demo`, `vinMasked`, `vin` (value with `source` module), `modules[] {address, name, reachability, protocol, link, identification {protocol, values[], raw[], notes}|null, notes, timestamp}`, `timestamp`.
+  - `read_fault_codes`: `demo`, `module {address, name}`, `status` (scan's `ModuleStatus`, incl. `GATEWAY_STATUS_ONLY`), `statusDescription`, `protocol`, `link`, `faultCount`, `faultListComplete`, `faults[] {id (display code, e.g. P0401-00), code, protocol, record, status (byte), statusText, statusFlags, failureType (byte|null), obdCode, freezeFrame {availability, message, records[raw], fields[value], responses, notes}, unit, timestamp}`, `identification` (or null), `notes`, `limitHit {limit, description, retryAfterSeconds, message}` (or null), `requests`, `startedAt`, `timestamp`.
+  - `get_vehicle_info`: `demo`, `mileage` (value), `modules[] {address, name, reachability, protocol, link, identification {protocol, values[], raw[], notes}|null, notes, timestamp}`, `timestamp`.
 - Every success also carries the same JSON as one text content block (for clients that only read text).
 - **Interpretation of "every value has id, unit, timestamp":** every object with an `id` (anything read from the car) has a `unit` key (`null`: unknown or none; nothing has a known unit yet) and a `timestamp` (ISO-8601 UTC, from scan's `checkedAt` / `readAt` / `finishedAt`). Structural fields (module address/name, status enums, counts) sit beside them. `ToolTesting.assertOutputRules` checks this on every result.
 
@@ -63,7 +63,7 @@ All four are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempote
 - Unlabeled values keep their raw IDs, e.g. `{"id": "group 011 field 2", "raw": "1A 2B"}`.
 - Summaries, not floods. v2 recordings return min/max/avg and notable events (e.g. "actual fell X below specified at Y rpm, N times"), with the full data in a file the AI can query.
 - Error messages tell the model what to do next: "adapter not connected: ask the user to plug in the CANable", "module 08 not responding", "rate limit hit: retry after 5 s".
-- The VIN is masked unless the user has turned masking off in config. The model can't change that setting.
+- There is no VIN in any result: it is never read (since 2026-11-17).
 
 ### Errors (as built)
 Tool results with `isError: true` and one text message (MCP tool-execution errors, so the model can correct itself):
@@ -90,25 +90,24 @@ Tool results with `isError: true` and one text message (MCP tool-execution error
 - `McpTools.NAMES` is the whole tool set; the constructor fails if the registered set drifts from it, and `ToolListTest` pins it.
 - Validation order (`McpTools.validate`): exact key set → type checks → `ModuleAddress.parse` → the published input schema as a backstop. The SDK's own input validation is **off** (`validateToolInputs(false)`) because it answers before our handler and would leave rejected calls unaudited; ours runs the same schema plus stricter checks.
 - Audit: every call through `McpTools.call` ends in exactly one `scan.recordToolCall(ToolCallRecord)` with outcome `ok` / `rejected` / `refused` / `error` and a one-line summary (no VIN). `Caller.mcp(<tool>)` is passed on every scan call, so scan's request lines name the tool too. A failure to write the tool-call line is logged; the car side is already protected by scan (nothing is sent without its audit line).
-- VIN: `ModuleResult.maskVin()` / `VehicleInfo.maskVin()` before shaping, when `McpOptions.maskVin()`.
 - Handlers run on the request thread (`immediateExecution(true)`; the servlet transport is blocking anyway).
 
 ## What to build
 - [x] Hosting decision: in-process Streamable HTTP in `server`, no stdio.
-- [x] `McpEndpoint` / `McpOptions` contract for `server`.
+- [x] `McpEndpoint` contract for `server`.
 - [x] `get_session_status`, `list_modules`, `read_fault_codes(module)`, `get_vehicle_info` with output schemas.
 - [x] Strict argument validation before scan; error mapping; audit of every call, including rejected and unknown-tool calls.
-- [x] VIN masking from config only.
+- [x] No VIN anywhere (2026-11-17; replaced masking).
 - [x] Host / Origin validation inside mcp (DNS rebinding), body size bound.
 - [ ] v2 tools (live data). Not started.
 
 ## Tests (all without hardware)
-- [x] `ToolHandlersTest`: each tool against `FakeScanService` / `SampleScanData`: JSON shape, units, timestamps, raw IDs, status byte, failure type, freeze-frame records, VIN masked and unmasked, audit records.
+- [x] `ToolHandlersTest`: each tool against `FakeScanService` / `SampleScanData`: JSON shape, units, timestamps, raw IDs, status byte, failure type, freeze-frame records, mileage (and "not read"), no `vin` key anywhere, audit records.
 - [x] `RealScanServiceTest`: the whole demo stack (`ScanServiceFactory.demo(FakeTimeSource.autoAdvancing(), …)`) through every tool, with the audit file checked (tool-call lines, scan request lines with `caller: mcp:read_fault_codes`, no guard rejections; rejected calls send nothing); `TestScanServices` for adapter missing and a module that doesn't answer.
 - [x] `ArgumentValidationTest`: missing/null/malformed/unknown modules, wrong types, extra fields (`clear`, `request: 14 FF FF FF`), arguments to no-arg tools, unknown tool, hostile key names, many keys; `ScanService` never called, each audited as `rejected`.
 - [x] `ToolListTest`: the registered set is exactly the four (endpoint, `NAMES`, definitions); no forbidden words; read-only annotations; strict input schemas.
 - [x] `ErrorMappingTest`: adapter missing (every tool), rate limit with retry seconds, module not responding, scan in progress, service closed, unexpected exception, audit-write failure.
-- [x] `ServletTransportTest`: the **real servlet + SDK transport + SDK server** through `FakeHttp`, a minimal in-test servlet harness (dynamic-proxy request/response/async context, no container, no sockets): initialize, `notifications/initialized`, `tools/list`, `tools/call` (SSE answer, structured + text, masked VIN, audited), bad arguments, unknown tool audited, Origin refused on POST/GET/DELETE (403, no session, scan untouched), repeated Origin, foreign Host (421), oversized body (413).
+- [x] `ServletTransportTest`: the **real servlet + SDK transport + SDK server** through `FakeHttp`, a minimal in-test servlet harness (dynamic-proxy request/response/async context, no container, no sockets): initialize, `notifications/initialized`, `tools/list`, `tools/call` (SSE answer, structured + text, no VIN, audited), bad arguments, unknown tool audited, Origin refused on POST/GET/DELETE (403, no session, scan untouched), repeated Origin, foreign Host (421), oversized body (413).
 - [x] `LocalhostOnlyTest`: accepted and refused hosts and origins, including prefix tricks (`localhost.evil.example`, `localhost:8080.evil.example`, `localhost:evil`).
 - Mutation checks: disabling the Host/Origin check failed 34 tests; skipping the unknown-key check failed 9 (the schema backstop still refused the extra fields).
 - [ ] Manual: connect Claude Code / Claude Desktop to the demo-mode server (`/mcp`, mounted by `server`) and ask it to scan the car. Not done yet.

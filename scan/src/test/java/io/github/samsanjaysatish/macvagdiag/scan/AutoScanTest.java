@@ -31,20 +31,20 @@ import org.junit.jupiter.api.Test;
 /** Discovery and Auto-Scan against fake diag: OK, faults, not responding, timing out partway. */
 class AutoScanTest {
 
-    static final String VIN = "WVWZZZ1KZDM123456";
+    static final int ODOMETER_KM = 366280;
     static final UdsDtc B1A10 = new UdsDtc(0x9A1012, 0x09);
     static final KwpDtc K01314 = new KwpDtc(0x0522, 0x23);
     static final KwpDtc P0401 = new KwpDtc(0x0401, 0xE2);
     static final KwpDtc P2463 = new KwpDtc(0x2463, 0x23);
 
     /**
-     * 01 KWP engine with a fault and the VIN, 03 KWP with a fault, 17 UDS with a fault, 19 answering but refusing
+     * 01 KWP engine with a fault, 03 KWP with a fault, 17 UDS with a fault and the odometer, 19 answering but refusing
      * the installation list and then timing out on {@code 18 02 FF 00}, 15 UDS dying partway, rest absent.
      */
     static void scriptCar(FakeModuleConnector car) {
         car.kwp("01", () -> kwp(P0401)
                 .onReadIdentification(ok(FakeDiagnosticService.identification(ApplicationProtocol.KWP2000,
-                        Map.of(EcuIdentification.Field.PART_NUMBER, "03L906018XX", EcuIdentification.Field.VIN, VIN))))
+                        Map.of(EcuIdentification.Field.PART_NUMBER, "03L906018XX"))))
                 .onReadFreezeFrame(ok(FakeDiagnosticService.freezeFrame(P0401,
                         new RawRecord("12 00 04 04 01", io.github.samsanjaysatish.macvagdiag.diag.RawBytes.ofHex("6C 01 E2"))))));
         car.kwp("03", () -> kwpScan("1K0907379AC ESP", K01314)
@@ -52,6 +52,7 @@ class AutoScanTest {
         car.uds("17", () -> Scripts.uds()
                 .onReadIdentification(ok(FakeDiagnosticService.identification(ApplicationProtocol.UDS,
                         Map.of(EcuIdentification.Field.PART_NUMBER, "5C6920870A"))))
+                .onReadOdometer(ok(FakeDiagnosticService.odometer(ODOMETER_KM)))
                 .onReadDtcs(ok(FakeDiagnosticService.dtcList(B1A10)))
                 .onReadFreezeFrame(new DiagResult.NotAvailable<>("none")));
         car.kwp("19", () -> FakeDiagnosticService.kwp().onStartSession(Scripts.okHex("50 89"))
@@ -119,8 +120,12 @@ class AutoScanTest {
                 assertEquals(2, t.connector().count(absent, "connect-failed"), absent + ": two setups on its one link");
             }
 
-            assertEquals(VIN, r.vin().orElseThrow());
-            assertEquals(ModuleAddress.ENGINE, r.vinSource().orElseThrow());
+            Mileage mileage = r.mileage().orElseThrow();
+            assertEquals(ODOMETER_KM, mileage.kilometres());
+            assertEquals(ModuleAddress.INSTRUMENTS, mileage.source());
+            assertEquals(r.mileage(), r.module(ModuleAddress.INSTRUMENTS).orElseThrow().mileage());
+            assertEquals(1, t.connector().count("17", "READ_ODOMETER"));
+            assertEquals(0, t.connector().count("01", "READ_ODOMETER"), "only 17 is asked for the odometer");
             assertEquals(3, r.faultCount());
             assertEquals(4, r.respondingModules().size(), "01 03 17 19 (15 was given up)");
             assertEquals(0, t.connector().openConnections(), "every channel closed");
@@ -153,7 +158,8 @@ class AutoScanTest {
             car.kwp("03", () -> kwpScan("ABS"));
             car.kwp("08", () -> kwpScan("HVAC")); // installed in the car, but the list says not: not contacted
             car.uds("17", () -> Scripts.uds().onReadIdentification(ok(FakeDiagnosticService.identification(
-                    ApplicationProtocol.UDS, Map.of()))).onReadDtcs(ok(FakeDiagnosticService.dtcList())));
+                    ApplicationProtocol.UDS, Map.of()))).onReadOdometer(Scripts.negative(0x22, 0x31))
+                    .onReadDtcs(ok(FakeDiagnosticService.dtcList())));
 
             List<ScanEvent> events = new ArrayList<>();
             AutoScanResult r = t.service().autoScan(Caller.web(), events::add);
@@ -280,19 +286,34 @@ class AutoScanTest {
     }
 
     @Test
-    @DisplayName("vehicleInfo reads 01, 17, 19 and takes the VIN from the first that reports one")
+    @DisplayName("vehicleInfo identifies 01, 17, 19 and reads the mileage from 17 on the same channel")
     void vehicleInfo() throws InterruptedException {
         try (TestScanServices t = TestScanServices.create()) {
             t.connector().uds("17", () -> Scripts.uds()
                     .onReadIdentification(ok(FakeDiagnosticService.identification(ApplicationProtocol.UDS,
-                            Map.of(EcuIdentification.Field.VIN, VIN)))));
+                            Map.of(EcuIdentification.Field.PART_NUMBER, "5C6920870A"))))
+                    .onReadOdometer(ok(FakeDiagnosticService.odometer(ODOMETER_KM))));
             VehicleInfo v = t.service().vehicleInfo(Caller.web());
-            assertEquals(VIN, v.vin().orElseThrow());
-            assertEquals(ModuleAddress.INSTRUMENTS, v.vinSource().orElseThrow());
+            assertEquals(ODOMETER_KM, v.mileage().orElseThrow().kilometres());
+            assertEquals(ModuleAddress.INSTRUMENTS, v.mileage().orElseThrow().source());
             assertEquals(List.of("01", "17", "19"), v.modules().stream().map(m -> m.module().hex()).toList());
             assertEquals(ModuleAvailability.Reachability.NOT_RESPONDING, v.modules().getFirst().reachability());
-            assertEquals("WVWZZZ1KZDM******", v.maskVin().vin().orElseThrow());
-            assertEquals("WVWZZZ1KZDM******", v.maskVin().modules().get(1).identification().orElseThrow().vin().orElseThrow());
+            assertEquals(v.mileage(), v.modules().get(1).mileage());
+            assertEquals(1, t.connector().count("17", "connect"), "identification and odometer on one channel");
+        }
+    }
+
+    @Test
+    @DisplayName("17 refusing the odometer (7F 22 31): noted, the scan of 17 goes on, no mileage")
+    void odometerRefused() throws InterruptedException {
+        try (TestScanServices t = TestScanServices.create()) {
+            t.connector().uds("17", () -> Scripts.uds()
+                    .onReadIdentification(ok(FakeDiagnosticService.identification(ApplicationProtocol.UDS, Map.of())))
+                    .onReadOdometer(Scripts.negative(0x22, 0x31)));
+            VehicleInfo v = t.service().vehicleInfo(Caller.web());
+            assertTrue(v.mileage().isEmpty());
+            assertTrue(v.modules().get(1).notes().stream().anyMatch(n -> n.startsWith("mileage not read: Negative response 7F 22 31")),
+                    v.modules().get(1).notes().toString());
         }
     }
 

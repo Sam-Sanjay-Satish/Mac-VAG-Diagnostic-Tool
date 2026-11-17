@@ -345,7 +345,7 @@ class NegativeResponseTest {
     @Test
     @DisplayName("ForbiddenRequestException from the channel propagates unchanged from every operation (never swallowed)")
     void forbiddenPropagates() {
-        RefusingChannel uds = new RefusingChannel(new ModuleRoute.IsoTp(0x7E0, 0x7E8, ApplicationProtocol.UDS));
+        RefusingChannel uds = new RefusingChannel(new ModuleRoute.IsoTp(0x714, 0x77E, ApplicationProtocol.UDS));
         RefusingChannel kwp = new RefusingChannel(new ModuleRoute.Tp20(0x01));
         List<DiagnosticService> services = List.of(new UdsDiagnosticService(uds, new FakeTimeSource()),
                 new KwpDiagnosticService(kwp, new FakeTimeSource()));

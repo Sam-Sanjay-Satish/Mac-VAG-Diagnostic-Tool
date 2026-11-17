@@ -83,7 +83,7 @@ class FullStackTest {
     }
 
     @Test
-    @DisplayName("Auto-Scan of the demo car end to end: modules, codes, statuses, VIN; wire == audit log")
+    @DisplayName("Auto-Scan of the demo car end to end: modules, codes, statuses, mileage; wire == audit log")
     void autoScanEndToEnd() throws InterruptedException {
         StringWriter log = new StringWriter();
         FakeTimeSource time = FakeTimeSource.autoAdvancing();
@@ -131,7 +131,6 @@ class FullStackTest {
             EcuInfo id = engine.identification().orElseThrow();
             assertEquals("03L906018XX", id.partNumber().orElseThrow());
             assertEquals("DEMO R4 2.0L TDI", id.systemName().orElseThrow());
-            assertEquals(DemoCar.VIN, id.vin().orElseThrow());
 
             ModuleResult instruments = r.module(ModuleAddress.INSTRUMENTS).orElseThrow();
             assertEquals(new ModuleLink.IsoTp(0x714, 0x77E, Protocol.UDS), instruments.link().orElseThrow());
@@ -155,8 +154,8 @@ class FullStackTest {
             assertTrue(gw.statusText().contains("Intermittent"));
             assertEquals("02E300012D", r.module(ModuleAddress.parse("02")).orElseThrow().identification().orElseThrow()
                     .partNumber().orElseThrow());
-            assertEquals(DemoCar.VIN, r.vin().orElseThrow());
-            assertEquals(ModuleAddress.ENGINE, r.vinSource().orElseThrow());
+            assertEquals(DemoCar.ODOMETER_KM, r.mileage().orElseThrow().kilometres());
+            assertEquals(ModuleAddress.INSTRUMENTS, r.mileage().orElseThrow().source());
             assertTrue(r.demo());
 
             // Every request on the wire was audit-logged first, in the same order, and passes the allowlist.
@@ -178,6 +177,8 @@ class FullStackTest {
             assertEquals(6, count(wire, "10 03"), "every UDS module in the extended session, as VCDS does");
             assertEquals(0, count(wire, "10 01"));
             assertEquals(6, count(wire, "19 02 AE"));
+            assertEquals(1, count(wire, "22 22 03"), "the odometer, from 17 only");
+            assertEquals(0, count(wire, "1A 90") + count(wire, "22 F1 90"), "the VIN is never read");
             assertTrue(log.toString().contains("\"outcome\":\"busy\""), "08's busy answer was retried");
 
             // The reservation table (DiagOp costs) covers what diag really sends, and the unused part of each
@@ -241,10 +242,10 @@ class FullStackTest {
             assertEquals(SessionStatus.AdapterState.CONNECTED, s.adapter());
             assertTrue(s.demo());
             AutoScanResult r = demo.autoScan(Caller.web(), null);
-            String report = ScanReport.text(r, true);
+            String report = ScanReport.text(r);
             assertTrue(report.contains(ScanReport.DEMO_BANNER));
-            assertTrue(report.contains("DEMOVIN0000******"), report);
-            assertTrue(!report.contains(DemoCar.VIN));
+            assertTrue(report.contains("Mileage:      123450 km (76708 mi), from module 17\n"), report);
+            assertTrue(!report.contains("VIN"), report);
             assertEquals(List.of("01", "02", "03", "05", "08", "09", "15", "17", "19", "25", "2B", "44", "77"),
                     demo.listModules(Caller.web()).stream()
                     .filter(a -> a.reachability() == ModuleAvailability.Reachability.RESPONDING)

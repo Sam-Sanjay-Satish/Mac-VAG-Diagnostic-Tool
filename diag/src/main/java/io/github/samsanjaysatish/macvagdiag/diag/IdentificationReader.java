@@ -15,7 +15,6 @@ import java.util.Map;
 final class IdentificationReader {
 
     static final int DID_HEADER_LENGTH = 3; // 62 [DID hi] [DID lo]
-    static final int VIN_LENGTH = 17;
 
     private final Exchange exchange;
     final Map<EcuIdentification.Field, String> fields = new EnumMap<>(EcuIdentification.Field.class);
@@ -80,15 +79,8 @@ final class IdentificationReader {
                     fields.put(field, Hex.formatCompact(data.bytes()));
                 }
             }
-            case VIN -> putVin(data, request);
             default -> putText(field, data, request);
         }
-    }
-
-    void putVin(RawBytes data, DiagRequest request) {
-        data.asciiText().filter(t -> t.length() == VIN_LENGTH).ifPresentOrElse(
-                vin -> fields.put(EcuIdentification.Field.VIN, vin),
-                () -> notes.add(request.hex() + ": not a 17-character VIN, kept raw"));
     }
 
     void putText(EcuIdentification.Field field, RawBytes data, DiagRequest request) {

@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A whole Auto-Scan: vehicle info, the gateway's installation list, then one {@link ModuleResult} per module
+ * A whole Auto-Scan: the mileage, the gateway's installation list, then one {@link ModuleResult} per module
  * scanned, in address order. With the installation list, those are the modules it lists as installed (as in
  * VCDS); without it (gateway not reachable), every known module with a link.
  *
@@ -14,8 +14,8 @@ import java.util.Optional;
  * @param caller who started it
  * @param startedAt start time
  * @param finishedAt end time
- * @param vin the VIN (unmasked), from the first module that reported one
- * @param vinSource which module it came from
+ * @param mileage the odometer, from 17 Instruments, if it was read (the VIN is never read: user's decision,
+ *     2026-11-17)
  * @param modules the result of each module scanned
  * @param cancelled true if it was cancelled before the end
  * @param demo true if this came from the simulated demo car
@@ -23,15 +23,15 @@ import java.util.Optional;
  * @param installationList the gateway's status of every installed module, in the gateway's order (including
  *     modules not in our table); empty if the list wasn't read and the fixed list was probed instead
  */
-public record AutoScanResult(String scanId, Caller caller, Instant startedAt, Instant finishedAt, Optional<String> vin,
-        Optional<ModuleAddress> vinSource, List<ModuleResult> modules, boolean cancelled, boolean demo,
+public record AutoScanResult(String scanId, Caller caller, Instant startedAt, Instant finishedAt,
+        Optional<Mileage> mileage, List<ModuleResult> modules, boolean cancelled, boolean demo,
         List<String> notes, List<GatewayStatus> installationList) {
 
     /** Without an installation list (the fixed list was probed). */
-    public AutoScanResult(String scanId, Caller caller, Instant startedAt, Instant finishedAt, Optional<String> vin,
-            Optional<ModuleAddress> vinSource, List<ModuleResult> modules, boolean cancelled, boolean demo,
+    public AutoScanResult(String scanId, Caller caller, Instant startedAt, Instant finishedAt,
+            Optional<Mileage> mileage, List<ModuleResult> modules, boolean cancelled, boolean demo,
             List<String> notes) {
-        this(scanId, caller, startedAt, finishedAt, vin, vinSource, modules, cancelled, demo, notes, List.of());
+        this(scanId, caller, startedAt, finishedAt, mileage, modules, cancelled, demo, notes, List.of());
     }
 
     public AutoScanResult {
@@ -39,8 +39,7 @@ public record AutoScanResult(String scanId, Caller caller, Instant startedAt, In
         Objects.requireNonNull(caller, "caller");
         Objects.requireNonNull(startedAt, "startedAt");
         Objects.requireNonNull(finishedAt, "finishedAt");
-        Objects.requireNonNull(vin, "vin");
-        Objects.requireNonNull(vinSource, "vinSource");
+        Objects.requireNonNull(mileage, "mileage");
         modules = List.copyOf(modules);
         notes = List.copyOf(notes);
         installationList = List.copyOf(installationList);
@@ -64,10 +63,5 @@ public record AutoScanResult(String scanId, Caller caller, Instant startedAt, In
     /** The result for {@code module}. */
     public Optional<ModuleResult> module(ModuleAddress module) {
         return modules.stream().filter(m -> m.module().equals(module)).findFirst();
-    }
-
-    /** A copy with the VIN masked everywhere, including raw identification records. */
-    public AutoScanResult maskVin() {
-        return VinMask.mask(this);
     }
 }
