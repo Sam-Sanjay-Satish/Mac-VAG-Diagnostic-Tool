@@ -3,6 +3,7 @@ package io.github.samsanjaysatish.macvagdiag.server;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.samsanjaysatish.macvagdiag.can.AbstractCanAdapter;
 import io.github.samsanjaysatish.macvagdiag.scan.AutoScanJob;
 import io.github.samsanjaysatish.macvagdiag.scan.AutoScanResult;
 import io.github.samsanjaysatish.macvagdiag.scan.Caller;
@@ -23,12 +24,21 @@ import org.springframework.test.context.DynamicPropertySource;
  * <b>Manual only</b> ({@code ./gradlew :server:hardwareTest}, CANable plugged into the car, ignition on). Checks
  * that the real wiring finds the CANable and an Auto-Scan gets answers. Never runs in {@code build} or CI.
  * Afterwards, open the web page ({@code ./gradlew :server:bootRun}) and run a scan from the browser.
+ *
+ * <p>Each run appends to two files in the git-ignored {@code local/hardware-runs/} (the test runs in
+ * {@code server/}): the audit log, and a trace of every CAN frame sent and received (with the TP 2.0 channel's
+ * debug lines), since the port is held and {@code can-log} can't record the run alongside.
  */
 @Tag("hardware")
-@SpringBootTest(properties = "macvagdiag.demo=false")
+@SpringBootTest(properties = {
+        "macvagdiag.demo=false",
+        "logging.file.name=../local/hardware-runs/server-hardwareTest-frames.log",
+        "logging.level." + AbstractCanAdapter.FRAME_LOGGER + "=TRACE",
+        "logging.level.io.github.samsanjaysatish.macvagdiag.transport=DEBUG"})
 class HardwareSmokeTest {
 
-    static final Path AUDIT = TestAuditLogs.newFile("hardware");
+    static final Path AUDIT = Path.of("..", "local", "hardware-runs", "server-hardwareTest-audit.jsonl")
+            .toAbsolutePath().normalize();
 
     @DynamicPropertySource
     static void auditLog(DynamicPropertyRegistry registry) {

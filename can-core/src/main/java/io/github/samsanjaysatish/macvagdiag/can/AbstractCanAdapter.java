@@ -17,7 +17,16 @@ import org.slf4j.LoggerFactory;
 public abstract sealed class AbstractCanAdapter implements CanAdapter
         permits SlcanAdapter, SimulatedAdapter, ReplayAdapter {
 
+    /** Name of the frame-trace logger. */
+    public static final String FRAME_LOGGER = "io.github.samsanjaysatish.macvagdiag.can.frames";
+
     private static final Logger log = LoggerFactory.getLogger(AbstractCanAdapter.class);
+
+    /**
+     * Every frame sent and received, at TRACE. Off unless this logger is enabled (the server hardware test does,
+     * to get a frame trace of a real run; the adapter's port is held, so {@code can-log} can't record it).
+     */
+    private static final Logger frames = LoggerFactory.getLogger(FRAME_LOGGER);
 
     /** Guards open/send/close so a send never races with a mode change. */
     private final Object stateLock = new Object();
@@ -63,6 +72,7 @@ public abstract sealed class AbstractCanAdapter implements CanAdapter
                 throw new ListenOnlyViolationException(frame);
             }
             transmit(frame);
+            frames.trace("{} tx {}", name(), frame);
         }
     }
 
@@ -75,7 +85,11 @@ public abstract sealed class AbstractCanAdapter implements CanAdapter
         if (mode == null) {
             throw new CanAdapterException(name() + " is not open");
         }
-        return awaitFrame(timeout);
+        Optional<TimestampedFrame> received = awaitFrame(timeout);
+        if (frames.isTraceEnabled()) {
+            received.ifPresent(f -> frames.trace("{} rx {}", name(), f.frame()));
+        }
+        return received;
     }
 
     @Override

@@ -35,7 +35,12 @@ tasks.test {
     systemProperty("junit.jupiter.execution.timeout.thread.mode.default", "SEPARATE_THREAD")
 }
 
-// Manual only, on the Mac with the CANable plugged into the car: ./gradlew hardwareTest
+// One CANable, one serial port: hardware tasks of different projects never run at the same time.
+val canAdapter = gradle.sharedServices.registerIfAbsent("canAdapter", CanAdapterLock::class) {
+    maxParallelUsages = 1
+}
+
+// Manual only, on the Mac with the CANable plugged into the car: ./gradlew :<project>:hardwareTest
 val hardwareTest by tasks.registering(Test::class) {
     description = "Runs tests tagged 'hardware' against the real adapter and car."
     group = "verification"
@@ -48,4 +53,11 @@ val hardwareTest by tasks.registering(Test::class) {
     failOnNoDiscoveredTests = false
     // Results depend on the car, not the code, so never reuse a previous run.
     outputs.upToDateWhen { false }
+    usesService(canAdapter)
+    // Show each test and its output live, e.g. "start a VCDS Auto-Scan now" while a test waits for traffic.
+    testLogging {
+        events("started", "passed", "skipped", "failed")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }

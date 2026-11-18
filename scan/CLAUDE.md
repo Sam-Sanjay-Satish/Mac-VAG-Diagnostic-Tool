@@ -101,6 +101,14 @@ It clears the `SimulatedAdapter`'s sent-frame record every 20 000 frames so a lo
   - **Not compared (known differences):** fault and failure-type texts (VCDS's database; `00 00 16` is "U1066" in VCDS, `P0000` by J2012), freeze-frame dates, the VIN in VCDS's header (VCDS reads it with OBD-II `09 02`; we never read the VIN), VCDS's extra identification (serials, ASAM data, subsystems, VCID).
   - Mutation check: disabling transport's length-flag mask fails 3 of its 7 tests.
 
+## Real-car run 2026-11-18 (v1 acceptance on the car)
+**v1's "done when" is met:** our own Auto-Scan on the car (`HardwareSmokeTest`, 2026-11-18 00:12, after the TP 2.0 fix in `transport`) compared with a VCDS Auto-Scan of the same car 6 minutes later (00:18).
+- Files (all `local/`, git-ignored): VCDS log `vcds-logs/2026-11-18-autoscan-compare.vcds.txt`; our audit `hardware-runs/server-hardwareTest-audit.jsonl` and frame trace `-frames.log` (the 00:11:52 run); the trace as a capture `captures/2026-11-18-001152-our-autoscan.log`; our report `hardware-runs/2026-11-18-001152-our-autoscan-report.txt`.
+- **How:** the checks of `AutoScanReplayTest`, with the counts taken from the VCDS log, run by a temporary test (not committed) on a `CaptureEcu` built from our own trace, against the 2026-11-18 VCDS log.
+- **Equal:** status table (16 installed, 13 responding, 04 from the list only, 2E and 56 "Cannot be reached"); 21 fault codes (01: 14, 17: 2, 19: 2, 77: 3) with VCDS number, P/SAE code, fault type and order; UDS freeze frames read with `19 06`; KWP freeze frames field for field except the date (and the status byte, below); 13 part numbers; mileage 366990 km / 228037 mi; 102 requests, all allowlisted, no VIN read, no `ecu.unseen()`.
+- **Different, and not ours:** bit 6 of two engine faults flipped between the scans. P1A58 (006744) was `60` for us and `20` ("Intermittent") for VCDS; P1946 (006470) the other way round. The other 12 engine status bytes are equal, and we decode `20` / `60` the way VCDS does. Two scans can't run at the same moment on one bus, so a live status bit can always differ.
+- **The car changed since 11-13:** the engine has 14 entries instead of 12, P0299 "Boost Pressure Regulation" stored twice (logged at 366972 km), and P0401 001 is now MIL ON (`E1`). `AutoScanReplayTest` stays on the 11-13 fixtures.
+
 ## From the sniffing session 2026-11-13
 VCDS Auto-Scan and a 01 fault-code read captured listen-only on the target car (git-ignored `local/`; analysis in `local/analysis/2026-11-13-sniffing-analysis.md`). All 16 modules and all 19 fault codes in the VCDS log were found on the bus.
 

@@ -100,8 +100,18 @@ final class Tp20Channel implements RawChannel {
     /** UNCONFIRMED: how many "not ready" ACKs in a row we accept before giving up. */
     static final int MAX_NOT_READY_ACKS = 10;
 
+    /**
+     * Minimum gap between the last frame we sent (usually our ACK of the previous response) and the first packet
+     * of our next message. VCDS waits about 18 ms every time (2026-11-13 capture, e.g. {@code 32E#B1} at .7356,
+     * {@code 32E#11 00 03 22 F1 87} at .7539). Without it, on the real car (2026-11-17 run) 03, 09 and the
+     * gateway missed our ACK or refused our request when it came 1-5 ms after the ACK: they answered {@code 92}
+     * (not ready, packet 2 not taken) or re-sent their last packet. The module's T3 applies too if it is longer.
+     */
+    static final Duration REQUEST_GAP = Duration.ofMillis(20);
+
     private static final int NO_ACK = -1;
     private static final int READY_FLAG = 0x100;
+    private static final int SEQ_COUNT = 16;
 
     private final BusGate bus;
     private final TimeSource time;
@@ -124,6 +134,10 @@ final class Tp20Channel implements RawChannel {
     // Set by process(): last ACK seen (seq | READY_FLAG if ready), and whether A1 arrived.
     private int lastAck = NO_ACK;
     private boolean paramsReplySeen;
+    // When we last put a frame on the bus (paces the next message, REQUEST_GAP).
+    private long lastTxAt;
+    // The data packets last received with each sequence number, to recognise a module's retransmission.
+    private final byte[][] recentPackets = new byte[SEQ_COUNT][];
 
     private Tp20Channel(BusGate bus, int moduleAddress, int txId, int rxId, int blockSize, Duration ackTimeout,
             Duration packetInterval) {
@@ -135,6 +149,7 @@ final class Tp20Channel implements RawChannel {
         this.blockSize = blockSize;
         this.ackTimeout = ackTimeout;
         this.packetInterval = packetInterval;
+        this.lastTxAt = time.nanoTime(); // A0 went out just before the module's A1
     }
 
     /**
@@ -315,7 +330,7 @@ final class Tp20Channel implements RawChannel {
         }
         try {
             paramsReplySeen = false;
-            bus.send(CanFrame.standard(txId, OP_CHANNEL_TEST));
+            transmit(CanFrame.standard(txId, OP_CHANNEL_TEST));
             long deadline = time.deadlineAfter(CONTROL_REPLY_TIMEOUT);
             while (!paramsReplySeen && open) {
                 Optional<CanFrame> next = bus.receiveOn(rxId, deadline);
@@ -344,7 +359,7 @@ final class Tp20Channel implements RawChannel {
         }
         open = false;
         try {
-            bus.send(CanFrame.standard(txId, OP_DISCONNECT));
+            transmit(CanFrame.standard(txId, OP_DISCONNECT));
             long deadline = time.deadlineAfter(CONTROL_REPLY_TIMEOUT);
             while (true) {
                 Optional<CanFrame> next = bus.receiveOn(rxId, deadline);
@@ -386,6 +401,8 @@ final class Tp20Channel implements RawChannel {
         int n = packets.size();
         int seqBase = txSeq;
         long[] lastPacketAt = {Long.MIN_VALUE};
+        Duration gap = packetInterval.compareTo(REQUEST_GAP) > 0 ? packetInterval : REQUEST_GAP;
+        time.sleepUntil(lastTxAt + gap.toNanos());
         for (int start = 0; start < n; ) {
             int end = Math.min(start + blockSize, n);
             int retries = 0;
@@ -395,7 +412,7 @@ final class Tp20Channel implements RawChannel {
                     sendPacket(op, (seqBase + j) & 0x0F, packets.get(j), lastPacketAt);
                 }
                 int expectedAck = (seqBase + end) & 0x0F;
-                AckOutcome outcome = awaitAck(expectedAck);
+                AckOutcome outcome = awaitAck(expectedAck, (seqBase + start) & 0x0F);
                 if (outcome == AckOutcome.OK) {
                     break;
                 }
@@ -407,8 +424,14 @@ final class Tp20Channel implements RawChannel {
                             "No ACK B%X from module %02X after %d retries", expectedAck, moduleAddress, MAX_BLOCK_RETRIES),
                             true));
                 }
-                log.warn("No ACK from module {} within {}; resending block (retry {}/{})",
-                        String.format("%02X", moduleAddress), ackTimeout, retries, MAX_BLOCK_RETRIES);
+                if (outcome == AckOutcome.NOT_TAKEN) {
+                    log.warn("Module {} didn't take the block starting at packet {}; resending it (retry {}/{})",
+                            String.format("%02X", moduleAddress), Integer.toHexString((seqBase + start) & 0x0F), retries,
+                            MAX_BLOCK_RETRIES);
+                } else {
+                    log.warn("No ACK from module {} within {}; resending block (retry {}/{})",
+                            String.format("%02X", moduleAddress), ackTimeout, retries, MAX_BLOCK_RETRIES);
+                }
             }
             start = end;
         }
@@ -423,15 +446,26 @@ final class Tp20Channel implements RawChannel {
         byte[] frame = new byte[1 + data.length];
         frame[0] = (byte) ((op << 4) | seq);
         System.arraycopy(data, 0, frame, 1, data.length);
-        bus.send(new CanFrame(txId, false, frame));
+        transmit(new CanFrame(txId, false, frame));
         lastPacketAt[0] = time.nanoTime();
     }
 
-    private enum AckOutcome { OK, TIMED_OUT, FAILED }
+    private void transmit(CanFrame frame) {
+        bus.send(frame);
+        lastTxAt = time.nanoTime();
+    }
 
-    private AckOutcome awaitAck(int expectedSeq) throws InterruptedException {
+    /**
+     * {@code NOT_TAKEN}: the module's ACK still names the block's first packet as the one it expects (e.g.
+     * {@code 92} after our packet 2, seen 2026-11-17 on 09 and the gateway), so the block wasn't accepted and is
+     * sent again once the module is ready.
+     */
+    private enum AckOutcome { OK, TIMED_OUT, NOT_TAKEN, FAILED }
+
+    private AckOutcome awaitAck(int expectedSeq, int blockStartSeq) throws InterruptedException {
         lastAck = NO_ACK;
         int notReady = 0;
+        boolean notTaken = false;
         long deadline = time.deadlineAfter(ackTimeout);
         while (true) {
             if (failure != null || !open) {
@@ -441,6 +475,19 @@ final class Tp20Channel implements RawChannel {
                 int seq = lastAck & 0x0F;
                 boolean ready = (lastAck & READY_FLAG) != 0;
                 lastAck = NO_ACK;
+                if (seq == blockStartSeq && seq != expectedSeq) {
+                    if (ready) {
+                        return AckOutcome.NOT_TAKEN;
+                    }
+                    notTaken = true;
+                    if (++notReady > MAX_NOT_READY_ACKS) {
+                        fail(Response.Failed.Kind.TRANSPORT_TIMEOUT, String.format(
+                                "Module %02X stayed not ready for %d ACKs", moduleAddress, MAX_NOT_READY_ACKS), true);
+                        return AckOutcome.FAILED;
+                    }
+                    deadline = time.deadlineAfter(ackTimeout); // wait for it to be ready, then resend
+                    continue;
+                }
                 if (seq != expectedSeq) {
                     fail(Response.Failed.Kind.PROTOCOL_ERROR, String.format(
                             "Module %02X acknowledged %X%X, expected B%X", moduleAddress, ready ? ACK_READY : ACK_NOT_READY,
@@ -460,7 +507,7 @@ final class Tp20Channel implements RawChannel {
             }
             Optional<CanFrame> next = bus.receiveOn(rxId, deadline);
             if (next.isEmpty()) {
-                return AckOutcome.TIMED_OUT;
+                return notTaken ? AckOutcome.NOT_TAKEN : AckOutcome.TIMED_OUT;
             }
             process(next.get());
         }
@@ -539,6 +586,16 @@ final class Tp20Channel implements RawChannel {
     }
 
     private void receiveData(CanFrame f, int op, int seq) {
+        if (seq != rxSeq && Arrays.equals(recentPackets[seq], f.data())) {
+            // The module sends a packet again when it missed our ACK (2026-11-17, 03 re-sent "15 42 4C" ~150 ms
+            // later). Already received: ACK it again if it asks, and drop it.
+            log.debug("Module {} repeated packet {}; ignored{}", String.format("%02X", moduleAddress), f,
+                    expectsAck(op) ? ", ACKed again" : "");
+            if (expectsAck(op)) {
+                transmit(CanFrame.standard(txId, (ACK_READY << 4) | rxSeq));
+            }
+            return;
+        }
         if (seq != rxSeq) {
             fail(Response.Failed.Kind.PROTOCOL_ERROR, String.format(
                     "Module %02X sent packet sequence %X, expected %X: %s", moduleAddress, seq, rxSeq, f), true);
@@ -546,6 +603,7 @@ final class Tp20Channel implements RawChannel {
         }
         rxSeq = (rxSeq + 1) & 0x0F;
         byte[] data = f.data();
+        recentPackets[seq] = data;
         int from = 1;
         if (rxBuffer == null) {
             if (data.length < 3) {
@@ -562,8 +620,8 @@ final class Tp20Channel implements RawChannel {
             from = 3;
         }
         rxBuffer.write(data, from, data.length - from);
-        if (op == DATA_MORE_EXPECT_ACK || op == DATA_LAST_EXPECT_ACK) {
-            bus.send(CanFrame.standard(txId, (ACK_READY << 4) | rxSeq));
+        if (expectsAck(op)) {
+            transmit(CanFrame.standard(txId, (ACK_READY << 4) | rxSeq));
         }
         boolean last = op == DATA_LAST_EXPECT_ACK || op == DATA_LAST_NO_ACK;
         int received = rxBuffer.size();
@@ -585,11 +643,15 @@ final class Tp20Channel implements RawChannel {
         }
     }
 
+    private static boolean expectsAck(int op) {
+        return op == DATA_MORE_EXPECT_ACK || op == DATA_LAST_EXPECT_ACK;
+    }
+
     private void sendTimingReply() {
         byte[] reply = new byte[1 + TESTER_TIMING.length];
         reply[0] = (byte) OP_PARAMS_RESPONSE;
         System.arraycopy(TESTER_TIMING, 0, reply, 1, TESTER_TIMING.length);
-        bus.send(new CanFrame(txId, false, reply));
+        transmit(new CanFrame(txId, false, reply));
     }
 
     // ---------------------------------------------------------------- failure

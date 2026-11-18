@@ -343,7 +343,7 @@ class Tp20ChannelTest {
         Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("10 89"), TIMEOUT));
 
         assertEquals(Response.Failed.Kind.TRANSPORT_TIMEOUT, f.kind());
-        assertEquals(Duration.ofMillis(300), time.elapsed().minus(before), "3 x T1 (100 ms)");
+        assertEquals(Duration.ofMillis(320), time.elapsed().minus(before), "20 ms request gap, then 3 x T1 (100 ms)");
         assertFalse(ch.isOpen());
         assertEquals(f, ch.exchange(Hex.parse("10 89"), TIMEOUT), "later calls report the same failure");
         script.assertComplete();
@@ -368,6 +368,111 @@ class Tp20ChannelTest {
         Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("10 89"), TIMEOUT));
         assertEquals(Response.Failed.Kind.PROTOCOL_ERROR, f.kind());
         assertFalse(ch.isOpen());
+        script.assertComplete();
+    }
+
+    // ------------------------------------------------------------------ real car, 2026-11-17
+
+    @Test
+    @DisplayName("next request waits 20 ms after our ACK (VCDS ~18 ms); with T3 longer than that, T3")
+    void requestGapAfterOurAck() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 1A 9B", reply(0x300, "B1"), replyAfter(Duration.ofMillis(20), 0x300, "10 00 03 7F 1A 11"))
+                .expect(0x740, "B1")
+                .expect(0x740, "11 00 03 22 F1 87", reply(0x300, "B2"), reply(0x300, "11 00 03 7F 22 31"))
+                .expect(0x740, "B2");
+
+        assertEquals(received("7F 1A 11"), ch.exchange(Hex.parse("1A 9B"), TIMEOUT));
+        assertEquals(received("7F 22 31"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
+
+        script.assertComplete();
+        List<Long> t = script.sendTimes(); // 0 setup, 1 A0, 2 1A 9B, 3 B1, 4 22 F1 87, 5 B2
+        assertEquals(Tp20Channel.REQUEST_GAP.toNanos(), t.get(4) - t.get(3));
+        assertTrue(t.get(2) - t.get(1) >= Tp20Channel.REQUEST_GAP.toNanos(), "first request after A0 too");
+
+        expectSetup("A1 0F 8A FF 5E FF"); // T3 5E = 30 ms
+        Tp20Channel slow = connect();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 00 02 50 89"))
+                .expect(0x740, "B1")
+                .expect(0x740, "11 00 02 10 89", reply(0x300, "B2"), reply(0x300, "11 00 02 50 89"))
+                .expect(0x740, "B2");
+        slow.exchange(Hex.parse("10 89"), TIMEOUT);
+        slow.exchange(Hex.parse("10 89"), TIMEOUT);
+        List<Long> u = script.sendTimes();
+        assertEquals(Duration.ofMillis(30).toNanos(), u.get(u.size() - 2) - u.get(u.size() - 3));
+    }
+
+    @Test
+    @DisplayName("09 / gateway on the car: 92 after our packet 2 (not taken), then B2: packet 2 resent, answer arrives")
+    void notTakenNotReadyThenResent() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 00 02 50 89"))
+                .expect(0x740, "B1")
+                .expect(0x740, "11 00 02 1A 9B", reply(0x300, "B2"), reply(0x300, "11 00 03 7F 1A 11"))
+                .expect(0x740, "B2")
+                .expect(0x740, "12 00 03 22 F1 87", reply(0x300, "92"), replyAfter(Duration.ofMillis(30), 0x300, "B2"))
+                .expect(0x740, "12 00 03 22 F1 87", reply(0x300, "B3"), reply(0x300, "12 00 05 62 F1 87 41 42"))
+                .expect(0x740, "B3");
+
+        assertEquals(received("50 89"), ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        assertEquals(received("7F 1A 11"), ch.exchange(Hex.parse("1A 9B"), TIMEOUT));
+        assertEquals(received("62 F1 87 41 42"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
+        assertTrue(ch.isOpen());
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("92 with no ready ACK after it: packet resent after T1; still not taken after 2 resends → TRANSPORT_TIMEOUT")
+    void notTakenTwiceMore() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "90"))
+                .expect(0x740, "10 00 02 10 89", reply(0x300, "90"))
+                .expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 00 02 50 89"))
+                .expect(0x740, "B1");
+        assertEquals(received("50 89"), ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        script.assertComplete();
+
+        script.expect(0x740, "11 00 02 10 89", reply(0x300, "91"))
+                .expect(0x740, "11 00 02 10 89", reply(0x300, "91"))
+                .expect(0x740, "11 00 02 10 89", reply(0x300, "91"))
+                .expect(0x740, "A8");
+        Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        assertEquals(Response.Failed.Kind.TRANSPORT_TIMEOUT, f.kind());
+        assertFalse(ch.isOpen());
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("03 on the car: module repeats its last packet 15 42 4C after our B6: ACKed again with B6, ignored")
+    void repeatedLastPacketIsAckedAgainAndIgnored() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 03 22 F1 87", reply(0x300, "B1"),
+                        reply(0x300, "20 00 0E 62 F1 87 31 4B"),
+                        reply(0x300, "21 30 39 30 37 33 37 39"),
+                        reply(0x300, "12 42 4C"))
+                .expect(0x740, "B3")
+                .expect(0x740, "11 00 03 22 F1 89", reply(0x300, "B2"),
+                        replyAfter(Duration.ofMillis(50), 0x300, "12 42 4C"))
+                .expect(0x740, "B3", replyAfter(Duration.ofMillis(10), 0x300, "13 00 05 62 F1 89 30 32"))
+                .expect(0x740, "B4");
+
+        assertEquals(received("62 F1 87 31 4B 30 39 30 37 33 37 39 42 4C"), ch.exchange(Hex.parse("22 F1 87"), TIMEOUT));
+        assertEquals(received("62 F1 89 30 32"), ch.exchange(Hex.parse("22 F1 89"), TIMEOUT));
+        assertTrue(ch.isOpen());
+        script.assertComplete();
+    }
+
+    @Test
+    @DisplayName("an out-of-sequence packet that is not a repeat (different bytes) is still a PROTOCOL_ERROR")
+    void outOfSequenceDifferentBytesStillFails() throws Exception {
+        Tp20Channel ch = connected();
+        script.expect(0x740, "10 00 02 10 89", reply(0x300, "B1"), reply(0x300, "10 00 02 50 89"))
+                .expect(0x740, "B1")
+                .expect(0x740, "11 00 02 10 89", reply(0x300, "B2"), reply(0x300, "10 00 02 50 8A"))
+                .expect(0x740, "A8");
+        assertEquals(received("50 89"), ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        Response.Failed f = assertInstanceOf(Response.Failed.class, ch.exchange(Hex.parse("10 89"), TIMEOUT));
+        assertEquals(Response.Failed.Kind.PROTOCOL_ERROR, f.kind());
         script.assertComplete();
     }
 
@@ -419,7 +524,8 @@ class Tp20ChannelTest {
 
         assertEquals(new Response.TimedOut(TIMEOUT), ch.exchange(Hex.parse("10 89"), TIMEOUT));
 
-        assertEquals(TIMEOUT, time.elapsed().minus(before));
+        assertEquals(Tp20Channel.REQUEST_GAP.plus(TIMEOUT), time.elapsed().minus(before),
+                "20 ms request gap after the channel opened, then the caller's 1 s");
         assertTrue(ch.isOpen());
         script.assertComplete();
     }
