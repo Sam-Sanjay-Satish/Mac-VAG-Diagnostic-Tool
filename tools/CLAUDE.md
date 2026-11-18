@@ -116,6 +116,14 @@ Requires JDK 25. `./gradlew :tools:run` uses the Gradle toolchain automatically.
 - Bench check repeated 2026-11-13 before the session: passed (`local/captures/bench-2026-11-13-check.log`). `capture-info` exits 1 with "no frames" on an empty bench capture; that's expected.
 - A logger started in the background can be stopped with `kill -INT <pid>` (same shutdown path as Ctrl-C, exit code 130, file flushed and closed).
 
+**v2 session 2026-11-18 (measuring blocks + OBD-II, for v2 and the ESP32 gauge project):** listen-only, VCDS did all the talking, timed `can-log --duration N` runs. All 0 errors, largest gap 0.6 s, no TP 2.0 `9x` replies.
+- `local/captures/2026-11-18-002922.log`: engine idling, groups 007/099/100, revs to ~2500 (199.5 s, 10340 frames, IDs `300`/`740` only: the channel was already open when the capture started). VCDS log `local/vcds-logs/2026-11-18-002922-step1.csv`.
+- `local/captures/2026-11-18-003345.log`: groups 001/011/033 (100 s, 4430 frames; includes the gateway identification channel and the engine channel setup). VCDS log `local/vcds-logs/2026-11-18-003345-step2.csv`.
+- `local/captures/2026-11-18-003611.log`: 01 closed, OBD-II mode 01 live data incl. PID `78` (180 s, 3879 frames, `7DF`/`7E0`/`7E8`/`7E9` plus the 01 close). No VCDS log.
+- Skipped: the planned 10-min idle-channel capture and the under-load runs.
+- Findings are in `diag/CLAUDE.md` ("Measuring blocks") and the ESP32 project's `CLAUDE.md`. The VCDS CSVs contain the VCID and the captures may contain identifiers: keep them in `local/`.
+- Timed `can-log --duration N` started from a Claude session in the background works well; a run aborted with a task stop left a partial file, which was deleted.
+
 ## Done when
 A full VCDS Auto-Scan has been captured from the car, checked with `capture-info`, and saved in `local/` next to the matching VCDS log.
 

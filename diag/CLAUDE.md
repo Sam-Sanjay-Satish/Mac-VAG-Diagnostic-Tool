@@ -146,6 +146,12 @@ Capture and VCDS log of the target car (git-ignored, `local/`; full analysis in 
   - Environment triplets use the classic KWP measuring-value formulas: `01` RPM = 0.2·a·b, `07` km/h = 0.01·a·b, `21` % = 100·b/a, `05` °C = a·(b−100)·0.1, `31` mg/stroke = a·b/40, `14` % = a·(b−128)/128. Every value checked matches VCDS.
   - Date/time: low 17 bits = hour (5) · minute (6) · second (6); VCDS prints the KWP second **+ 1**. The date bits are near all-ones and VCDS prints the same date for every record, so the date can't be decoded from this car.
 - VCDS also sends `31 B8 00 00` (routine control, never allowed) to every TP 2.0 module and `21 11` / `21 59` (measuring blocks) to the engine for readiness. Not needed for v1.
+- **Measuring blocks (v2, from the 2026-11-18 capture; not on the allowlist, adding `21 xx` needs the user's approval):** request `21 <group>` (VCDS decimal group → hex), reply `61 <group>` + 8 triplets (24 bytes). **Only triplets 1–4 are VCDS's fields 1–4**; 5–8 are placeholders (`25 00 00`, `30 00 00`). Formula `25` with `00 00` = no value (VCDS shows a blank cell). Checked against VCDS's CSV at idle:
+  - 007: fuel temp `05 09 8F` 38.7 °C, **oil temp `25 00 00` (empty: the engine has no oil temp)**, intake air `05 09 83` 27.9, coolant `05 09 AF` 67.5.
+  - 099: RPM `01 73 24` 828, EGT before turbo `05 3C 7F` 162.0 °C, before ox. cat `05 3C 79` 126.0, after ox. cat `05 3C 78` 120.0.
+  - 100: `05 3C 78` 120.0, `05 3C 74` 96.0, DPF differential pressure `32 27 82` / `32 27 80` (VCDS 5 / 0 mbar; formula `32` not decoded yet). 033: RPM, EGT pre-turbo `05 3C 7E`, two regulation factors `1F 50 20` (VCDS 1.00). 001: RPM, `27` mg/str, `64` bar (`64 50 29` = 328.0 ✓), coolant. 011: RPM, `60` mbar (`60 79 53` = 1004.3 ✓) ×2, duty cycle `21`.
+  - VCDS polls round-robin, one `21 xx` every ~140 ms with 3 groups open, and keeps sending `A3` about every 0.55 s alongside.
+- **OBD-II mode 01 (same capture):** the engine (`7E8`) supports 01 04 05 0C 0D 10 13 1C 1F 21 24 25 30 31 33 3C 41 42 46 49 4A 4C 4F 51 5D 5E 61 62 63 65 67 69 6B 6D 70 71 73 77 78 7A 7F 81 82 89 8B; **not `5C` (oil temp)**. VCDS sent these to functional `7DF`; the DSG also answered on `7E9`. Not used by macvagdiag (`7E0/7E8` were removed 2026-11-17).
 
 **KWP DTC codes and status (12 engine + 2 gateway pairs, all matched):**
 - VCDS code = decimal of the 16-bit value (`2B A6` → 011174; gateway `05 18` → 01304). `DtcCodes.vagFiveDigit` is right; VCDS zero-pads to 6 digits for the engine (`vagSixDigit`, used when there is a P-code).
