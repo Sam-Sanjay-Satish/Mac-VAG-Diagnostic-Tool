@@ -20,6 +20,9 @@ bin/
 
 # Logs
 *.log
+# ...except the VIN-masked real-car capture fixtures, which the replay tests need (CI failed without them,
+# 2026-11-16..17). Only sanitized files go here; check the VIN before committing (see CLAUDE.md).
+!can-core/src/testFixtures/resources/fixtures/**/*.log
 
 # Raw car data (captures, VCDS logs) contain the VIN.
 # Keep unredacted files here; only commit sanitized fixtures.
