@@ -6,7 +6,7 @@ An open-source, **read-only** diagnostic tool for VW / VAG cars that runs native
 
 It reads fault codes, their status, freeze frames, module identification and mileage. It never writes, clears, codes, adapts or flashes anything, and that is enforced in code, not by convention.
 
-> **Status:** work in progress. The full Auto-Scan matches a VCDS Auto-Scan on a replay of a real car capture, but the tool has **not yet transmitted on a real car**. It is not a VCDS replacement yet.
+> **Status:** v1 works on a real car. On 2026-11-18 its Auto-Scan of the target car (13 modules, 21 fault codes, in about 15 s) matched a VCDS Auto-Scan of the same car taken minutes later: the same modules and statuses, fault codes, freeze frames, part numbers and mileage. It has been tested on one car only, and it is not a VCDS replacement: no live data, no fault-code descriptions yet.
 
 ## Features (v1)
 - **Auto-Scan of every module:** discovers installed modules through the gateway's installation list, then reads fault codes with status wording, KWP2000 freeze frames, part numbers and software versions, and the odometer.
@@ -15,7 +15,7 @@ It reads fault codes, their status, freeze frames, module identification and mil
 - **Demo mode** with a simulated car, so everything can be tried without an adapter.
 - **Listen-only CAN logger** (`can-log`) for sniffing sessions, and a sanitizer that masks the VIN in captures and VCDS logs.
 
-Not done yet: live measuring blocks, fault-code descriptions / label files, `.app` packaging.
+Not done yet: live measuring blocks (the protocol is worked out from a capture, see the roadmap), fault-code descriptions / label files, `.app` packaging.
 
 ## Safety design
 A diagnostic tool that an AI agent can drive has to be safe regardless of what the agent asks for. These rules are enforced in code and covered by tests:
@@ -91,14 +91,25 @@ CI has no adapter and no car, so `./gradlew build` passes with nothing plugged i
 - **Hand-written bytes** for encoders and decoders (slcan, TP 2.0 / ISO-TP framing, fault-code records, freeze frames).
 - **Simulated ECUs** that answer requests, including negative responses, timeouts and dropped frames.
 - **Replays of a real car capture** (VIN masked). An end-to-end test runs an Auto-Scan against the replay and compares it with the VCDS Auto-Scan of the same session: modules, statuses, fault codes, freeze frames, part numbers and mileage.
+- **Frames from real-car runs.** The first scan on the car showed that some modules need a pause of about 20 ms between our acknowledgement and our next request (VCDS waits about 18 ms). The replays answer instantly, so they couldn't show it. Those frames are now unit tests.
 - Time is injectable, so timeouts and keep-alives are tested instantly.
 
-Hardware tests are tagged `hardware`, excluded from the normal build, and run by hand one project at a time (for example `./gradlew :can-core:hardwareTest`).
+Hardware tests are tagged `hardware`, excluded from the normal build, and run by hand at the car. All four have passed on the real car:
+
+```sh
+# VCDS connected and running an Auto-Scan (our adapter only listens):
+MACVAGDIAG_EXPECT_FRAMES=1 ./gradlew :can-core:hardwareTest :tools:hardwareTest
+# VCDS unplugged (these transmit):
+./gradlew :transport:hardwareTest
+./gradlew :server:hardwareTest
+```
+
+Never run `./gradlew hardwareTest` for everything, and never run the transmitting tests while another tester is connected. The hardware tasks take turns on the adapter, show their output live, and the server test writes an audit log and a frame trace of the run to `local/hardware-runs/`.
 
 ## Roadmap
-1. Hardware tests on the bench, then at the car.
-2. A real Auto-Scan compared with a same-day VCDS Auto-Scan (v1 done).
-3. Live measuring blocks (v2), also as MCP tools.
+1. ~~Hardware tests on the bench, then at the car.~~ Done 2026-11-17/18.
+2. ~~A real Auto-Scan compared with a same-day VCDS Auto-Scan (v1 done).~~ Done 2026-11-18.
+3. Live measuring blocks (v2), also as MCP tools. The request and response format and the value formulas are worked out from a listen-only capture of VCDS. Reading them needs one more allowlist entry (KWP `21`, measuring blocks), which is still to be approved.
 4. Fault-code descriptions and label files.
 5. A macOS `.app` package.
 
