@@ -12,6 +12,10 @@ import java.util.Optional;
  * values of the 12 engine freeze frames): same number, same precision, same unit. VCDS's labels are plain
  * quantity names; they are repeated so the output reads like the VCDS report. Unknown formulas are returned raw
  * by {@link #describe}.
+ *
+ * <p>Measuring blocks ({@code 21 gg} → {@code 61 gg} + triplets, v2) use the same triplets, decoded by
+ * {@link #decode}. Formula {@code 32} was added from the 2026-11-18 capture of group 100 (DPF differential
+ * pressure {@code 32 27 82} = VCDS 5 mbar, {@code 32 27 80} = 0 mbar; two samples).
  */
 final class KwpMeasuringValue {
 
@@ -44,8 +48,39 @@ final class KwpMeasuringValue {
                     : Optional.of(BigDecimal.valueOf(100L * b).divide(BigDecimal.valueOf(a), 6, RoundingMode.HALF_UP)))),
             Map.entry(0x27, new Kind("Inj. Quantity", " mg/str", 1, ratio((a, b) -> a * b, 255))),  // 46 9C -> 42.8
             Map.entry(0x31, new Kind("Mass Air / Rev.", " mg/str", 1, ratio((a, b) -> a * b, 40))), // C8 34 -> 260.0
+            Map.entry(0x32, new Kind("Pressure", " mbar", 0, (a, b) -> a == 0 ? Optional.empty()    // 27 82 -> 5
+                    : Optional.of(BigDecimal.valueOf(100L * (b - 128)).divide(BigDecimal.valueOf(a), 6, RoundingMode.HALF_UP)))),
             Map.entry(0x60, new Kind("Pressure", " mbar", 1, ratio((a, b) -> a * b, 10))),          // 79 53 -> 1004.3
             Map.entry(0x64, new Kind("Pressure", " bar", 1, ratio((a, b) -> a * b, 10))));          // 50 AB -> 1368.0
+
+    /**
+     * Formula {@code 25} with {@code a = b = 00}: no value. VCDS shows a blank cell (2026-11-18: engine group 007
+     * field 2, oil temperature, which this engine doesn't measure).
+     */
+    static final int FORMULA_NO_VALUE = 0x25;
+
+    /** True if the triplet means "no value" (see {@link #FORMULA_NO_VALUE}). */
+    static boolean isEmpty(int formula, int a, int b) {
+        return formula == FORMULA_NO_VALUE && a == 0 && b == 0;
+    }
+
+    /**
+     * One decoded triplet: {@code quantity} is VCDS's generic name for the formula ({@code Temperature}),
+     * {@code unit} without VCDS's leading space ({@code °C}, empty for none), {@code value} rounded to VCDS's
+     * precision, empty if the formula is unknown or its value can't be computed.
+     */
+    record Decoded(String quantity, String unit, Optional<BigDecimal> value) {
+    }
+
+    /** Decodes one triplet; an unknown formula gives an empty quantity, unit and value. */
+    static Decoded decode(int formula, int a, int b) {
+        Kind k = KINDS.get(formula);
+        if (k == null) {
+            return new Decoded("", "", Optional.empty());
+        }
+        Optional<BigDecimal> v = k.formula().value(a, b).map(x -> x.setScale(k.decimals(), RoundingMode.HALF_UP));
+        return new Decoded(k.label(), k.unit().strip(), v);
+    }
 
     /** True if {@link #describe} decodes this formula byte. */
     static boolean known(int formula) {

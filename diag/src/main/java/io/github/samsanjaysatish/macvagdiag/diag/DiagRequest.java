@@ -22,6 +22,7 @@ final class DiagRequest {
     static final int SID_KWP_READ_DTC_BY_STATUS = 0x18;
     static final int SID_UDS_READ_DTC_INFORMATION = 0x19;
     static final int SID_KWP_READ_ECU_IDENTIFICATION = 0x1A;
+    static final int SID_KWP_READ_DATA_BY_LOCAL_ID = 0x21;
     static final int SID_UDS_READ_DATA_BY_IDENTIFIER = 0x22;
     static final int SID_TESTER_PRESENT = 0x3E;
 
@@ -115,6 +116,17 @@ final class DiagRequest {
             throw new IllegalArgumentException("DID must be 16 bits: " + did);
         }
         return new DiagRequest(ApplicationProtocol.KWP2000, SID_UDS_READ_DATA_BY_IDENTIFIER, (did >> 8) & 0xFF, did & 0xFF);
+    }
+
+    /**
+     * KWP {@code 21 [group]}: read measuring block (read data by local identifier), group {@code 01}..{@code FF}.
+     * Approved by the user on 2026-11-19; group {@code 00} is refused by the allowlist and here.
+     */
+    static DiagRequest kwpReadMeasuringBlock(int group) {
+        if (group < 1 || group > 0xFF) {
+            throw new IllegalArgumentException("measuring block group must be 1..255: " + group);
+        }
+        return new DiagRequest(ApplicationProtocol.KWP2000, SID_KWP_READ_DATA_BY_LOCAL_ID, group);
     }
 
     // ---- UDS ----

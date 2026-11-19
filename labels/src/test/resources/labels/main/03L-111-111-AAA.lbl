@@ -1,0 +1,37 @@
+; made-up engine labels
+001,0,Basic Values
+001,1,Engine Speed,(G28),Range: 0...6000 /min\nSpecification (Idle): 800...900 /min
+001,2,Fuel Quantity,,Specification (Idle): 2.0...8.0 mg/str
+001,3,Rail Pressure,(actual),Range: 0...2000 bar
+001,4,Coolant,Temperature (G62),Range: -40.0...+140.0 °C\nSpecification (Warm): 80.0...105.0 °C
+002,0,Switches
+002,1,Engine Speed,(G28)
+002,3,Status Bits,,xxxxxxx1 = Switch A on\nxxxxxx1x = Switch B on
+007,0,Temperatures
+007,2,Oil Temperature
+008,1,Field Without Title
+8,0,Duplicate Group Written Short
+081,0,Identification Data
+081,1,Vehicle Ident.,Number (VIN)
+081,3,Something Else
+082,0,Bus Communication
+082,2,Immobilizer,,Specification: Immobilizer 1
+083,0,Keys
+083,1,Key Number
+084,0,Key Data
+084,2,Key-ID authorized
+099,0,Too Many Fields
+099,5,Hidden Field
+099,10,Hidden Field Too
+0120,0,Four Digit Group
+000,0,Group Zero Is Not A Group
+256,0,Above 255
+B003,0,Basic Setting Group
+B003,1,Basic Setting Field
+B003,11,Press both pedals
+A050,0,Adaptation Channel
+C00,Coding Help
+LC,00,0=,Long coding help
+S00,Security Access
+T1234,Output Test
+109,2,Ratio,"D/S" Mode, with comma

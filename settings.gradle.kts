@@ -18,6 +18,8 @@ include(
     "tools",
     "transport",
     "diag",
+    // Label files (VCDS .lbl format): names and specs for measuring blocks. Plain file parsing, used by scan.
+    "labels",
     "scan",
     // mcp is hosted in-process by server over HTTP (user decision, 2026-10-22), so it sits below server.
     "mcp",

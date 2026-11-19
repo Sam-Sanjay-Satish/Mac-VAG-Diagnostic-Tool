@@ -18,7 +18,9 @@ import org.junit.jupiter.api.Test;
 class ToolListTest {
 
     static final List<String> EXPECTED = List.of("get_session_status", "list_modules", "read_fault_codes",
-            "get_vehicle_info");
+            "get_vehicle_info",
+            // v2 live data (2026-11-19, user's plan): typed reads of catalogued measuring-block values only.
+            "list_available_data", "read_live_data", "record_live_data");
 
     /** Words no tool name or description may offer. */
     private static final List<String> FORBIDDEN = List.of("clear", "erase", "delete", "reset", "write", "send",
@@ -26,7 +28,7 @@ class ToolListTest {
             "basic_setting");
 
     @Test
-    void registeredToolsAreExactlyTheV1List() {
+    void registeredToolsAreExactlyThePinnedList() {
         try (McpEndpoint endpoint = McpEndpoint.create(new FakeScanService())) {
             assertEquals(EXPECTED, endpoint.tools().stream().map(McpSchema.Tool::name).toList());
             assertEquals(EXPECTED, McpTools.NAMES);
@@ -58,14 +60,30 @@ class ToolListTest {
     }
 
     @Test
-    void onlyReadFaultCodesTakesAnArgumentAndItIsTheModule() {
+    void onlyTheseArgumentsExist() {
+        java.util.Map<String, List<String>> expected = java.util.Map.of(
+                "read_fault_codes", List.of("module"),
+                "list_available_data", List.of("module", "groups", "query"),
+                "read_live_data", List.of("values"),
+                "record_live_data", List.of("values", "seconds"));
+        java.util.Map<String, List<String>> required = java.util.Map.of(
+                "read_fault_codes", List.of("module"),
+                "list_available_data", List.of("module"),
+                "read_live_data", List.of("values"),
+                "record_live_data", List.of("values", "seconds"));
         for (McpSchema.Tool tool : new McpTools(new FakeScanService()).definitions()) {
             Object properties = tool.inputSchema().get("properties");
-            if (tool.name().equals("read_fault_codes")) {
-                assertEquals(List.of("module"), List.copyOf(ToolTesting.map(properties).keySet()));
-                assertEquals(List.of("module"), tool.inputSchema().get("required"));
+            if (expected.containsKey(tool.name())) {
+                assertEquals(new java.util.TreeSet<>(expected.get(tool.name())),
+                        new java.util.TreeSet<>(ToolTesting.map(properties).keySet()), tool.name());
+                assertEquals(required.get(tool.name()), tool.inputSchema().get("required"), tool.name());
             } else {
                 assertTrue(ToolTesting.map(properties).isEmpty(), tool.name());
+            }
+            for (Object p : ToolTesting.map(properties).keySet()) {
+                String arg = String.valueOf(p).toLowerCase(Locale.ROOT);
+                assertFalse(arg.contains("request") || arg.contains("raw") || arg.contains("bytes")
+                        || arg.contains("hex") || arg.contains("service"), tool.name() + " takes " + p);
             }
         }
     }

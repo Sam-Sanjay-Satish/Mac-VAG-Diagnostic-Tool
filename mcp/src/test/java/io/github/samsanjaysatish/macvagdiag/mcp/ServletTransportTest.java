@@ -89,7 +89,7 @@ class ServletTransportTest {
     }
 
     @Test
-    void toolsListOverTheTransportIsExactlyTheV1List() throws Exception {
+    void toolsListOverTheTransportIsExactlyThePinnedList() throws Exception {
         String session = connect();
         Map<String, Object> response = rpc(session, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
         List<Object> tools = list(map(response.get("result")).get("tools"));

@@ -1,7 +1,12 @@
 package io.github.samsanjaysatish.macvagdiag.mcp;
 
 import io.github.samsanjaysatish.macvagdiag.scan.Caller;
+import io.github.samsanjaysatish.macvagdiag.scan.InvalidLiveValueException;
 import io.github.samsanjaysatish.macvagdiag.scan.InvalidModuleAddressException;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataCatalog;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataRecording;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataSnapshot;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveValueId;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAvailability;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleResult;
@@ -17,6 +22,7 @@ import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,14 +59,24 @@ final class McpTools {
     static final String LIST_MODULES = "list_modules";
     static final String READ_FAULT_CODES = "read_fault_codes";
     static final String GET_VEHICLE_INFO = "get_vehicle_info";
+    static final String LIST_AVAILABLE_DATA = "list_available_data";
+    static final String READ_LIVE_DATA = "read_live_data";
+    static final String RECORD_LIVE_DATA = "record_live_data";
 
     /** Every tool, in the order they are listed. Pinned by {@code ToolListTest}. */
-    static final List<String> NAMES = List.of(GET_SESSION_STATUS, LIST_MODULES, READ_FAULT_CODES, GET_VEHICLE_INFO);
+    static final List<String> NAMES = List.of(GET_SESSION_STATUS, LIST_MODULES, READ_FAULT_CODES, GET_VEHICLE_INFO,
+            LIST_AVAILABLE_DATA, READ_LIVE_DATA, RECORD_LIVE_DATA);
 
     /** Audit-log name for a call to a tool that doesn't exist (the requested name goes in the arguments). */
     static final String UNKNOWN_TOOL = "unknown_tool";
 
     static final String MODULE_ARG = "module";
+    static final String QUERY_ARG = "query";
+    static final String GROUPS_ARG = "groups";
+    static final String VALUES_ARG = "values";
+    static final String SECONDS_ARG = "seconds";
+    static final int MAX_QUERY_LENGTH = 40;
+    static final int MAX_GROUPS_ARG = 20;
 
     private static final String READ_ONLY_NOTE = " Read-only: nothing here can clear codes or change anything in the car.";
     private static final String DEMO_NOTE = " \"demo\": true means the built-in simulated car: all data is made up.";
@@ -141,6 +157,59 @@ final class McpTools {
                                     .orElse("not read") + ", " + v.modules().size() + " module(s) asked");
                 });
 
+        add(LIST_AVAILABLE_DATA, "List available live data",
+                "Which live values (measuring blocks) a module can be read for, so you can choose what to read. "
+                        + "Without filters: the group list (number, title, field count). With \"groups\" (e.g. [1, 11]) "
+                        + "or a \"query\" (e.g. \"boost\", matched against titles and field names): the fields, each "
+                        + "with its value ID (e.g. \"01:011.3\"), name and spec ranges from the label file. Names and "
+                        + "specs come from the module's label file (labelSource); without one, groups are found by "
+                        + "asking the module (source PROBE_INCOMPLETE: call again to continue) and fields only have the "
+                        + "module's generic quantity and unit. Groups holding the VIN or immobilizer identity are "
+                        + "withheld and can't be read. Only KWP2000 modules (01, 02, 03, 08, 09, 19, 44) have "
+                        + "measuring blocks; UDS modules return NOT_SUPPORTED. Call this before read_live_data."
+                        + READ_ONLY_NOTE + DEMO_NOTE,
+                ToolSchemas.availableDataArguments(), ToolSchemas.availableDataOutput(),
+                Set.of(MODULE_ARG, QUERY_ARG, GROUPS_ARG), args -> {
+                    ModuleAddress module = module(args);
+                    LiveDataCatalog c = scan.liveDataCatalog(Caller.mcp(LIST_AVAILABLE_DATA), module);
+                    Map<String, Object> out = ToolOutput.availableData(c, query(args), groups(args), scan.isDemo());
+                    return new Outcome(out, "module " + module.hex() + ": " + c.source() + ", " + c.groups().size()
+                            + " group(s), " + c.fieldCount() + " field(s)" + c.labelSource().map(l -> ", labels " + l)
+                            .orElse(""));
+                });
+
+        add(READ_LIVE_DATA, "Read live data",
+                "Reads chosen live values once: 1 to " + ScanService.MAX_LIVE_VALUES + " value IDs from one "
+                        + "module's list_available_data, from at most " + ScanService.MAX_LIVE_GROUPS + " groups (each "
+                        + "group is one request; its four fields come together). Each value has its number, unit, "
+                        + "name, the label's spec ranges and the raw bytes. Specs often depend on conditions (idle, "
+                        + "warm, full load): ask the user to set those up first if needed. State EMPTY means the module "
+                        + "sent no value for that field (it may not measure it)." + READ_ONLY_NOTE + DEMO_NOTE,
+                ToolSchemas.readLiveDataArguments(), ToolSchemas.liveDataOutput(), Set.of(VALUES_ARG), args -> {
+                    List<LiveValueId> ids = valueIds(args);
+                    LiveDataSnapshot r = scan.readLiveData(Caller.mcp(READ_LIVE_DATA), ids);
+                    return new Outcome(ToolOutput.liveData(r, scan.isDemo()), "module " + r.module().hex() + ": "
+                            + r.status() + ", " + r.values().size() + " value(s), " + r.requests() + " request(s)");
+                });
+
+        add(RECORD_LIVE_DATA, "Record live data",
+                "Reads chosen live values repeatedly for 1 to 120 seconds (same value rules as read_live_data; "
+                        + "one group request every 250 ms or slower) and returns a summary per value: samples, "
+                        + "min / max / average, first / last, when min and max were seen, and notable events (samples "
+                        + "outside the label's range, empty or unread samples). Every sample is in a CSV file "
+                        + "(\"file\") for later analysis. Blocks other tools for the whole duration. Use it while the "
+                        + "user holds a condition (e.g. 2500 rpm, a test drive): ask them first and wait until they "
+                        + "say it is set up." + READ_ONLY_NOTE + DEMO_NOTE,
+                ToolSchemas.recordLiveDataArguments(), ToolSchemas.recordingOutput(), Set.of(VALUES_ARG, SECONDS_ARG),
+                args -> {
+                    List<LiveValueId> ids = valueIds(args);
+                    Duration d = Duration.ofSeconds(((Number) args.get(SECONDS_ARG)).longValue());
+                    LiveDataRecording r = scan.recordLiveData(Caller.mcp(RECORD_LIVE_DATA), ids, d);
+                    return new Outcome(ToolOutput.recording(r, scan.isDemo()), "module " + r.module().hex() + ": "
+                            + r.status() + ", " + r.rounds() + " round(s) in " + r.recorded().toMillis() + " ms, "
+                            + r.requests() + " request(s)");
+                });
+
         if (!List.copyOf(tools.keySet()).equals(NAMES)) {
             throw new IllegalStateException("tool set drifted from NAMES: " + tools.keySet());
         }
@@ -205,6 +274,10 @@ final class McpTools {
         } catch (InvalidArguments e) {
             audit(name, args, "rejected", e.getMessage());
             return error("invalid arguments: " + e.getMessage() + " Nothing was sent to the car.");
+        } catch (InvalidLiveValueException e) {
+            // scan checked the IDs against the module's catalog before sending anything.
+            audit(name, args, "rejected", e.getMessage());
+            return error("invalid arguments: " + e.getMessage() + ". Nothing was sent to the car.");
         } catch (ScanRefusedException e) {
             String message = refusal(e);
             audit(name, args, "refused", e.reason() + ": " + e.getMessage());
@@ -232,7 +305,7 @@ final class McpTools {
             throw new InvalidArguments("unknown argument(s) " + String.join(", ", quoted)
                     + (unknown.size() > 5 ? " and " + (unknown.size() - 5) + " more" : "") + "; " + usage(name));
         }
-        if (name.equals(READ_FAULT_CODES)) {
+        if (name.equals(READ_FAULT_CODES) || name.equals(LIST_AVAILABLE_DATA)) {
             Object module = args.get(MODULE_ARG);
             if (module == null) {
                 throw new InvalidArguments("missing \"module\"; " + usage(name));
@@ -247,6 +320,48 @@ final class McpTools {
                 throw new InvalidArguments(e.getMessage() + ". Call list_modules to see which modules respond.");
             }
         }
+        if (name.equals(LIST_AVAILABLE_DATA)) {
+            Object q = args.get(QUERY_ARG);
+            if (args.containsKey(QUERY_ARG) && !(q instanceof String text && !text.isBlank()
+                    && text.length() <= MAX_QUERY_LENGTH)) {
+                throw new InvalidArguments("\"query\" must be a non-empty string of at most " + MAX_QUERY_LENGTH
+                        + " characters; " + usage(name));
+            }
+            if (args.containsKey(GROUPS_ARG)) {
+                if (!(args.get(GROUPS_ARG) instanceof List<?> list) || list.isEmpty() || list.size() > MAX_GROUPS_ARG) {
+                    throw new InvalidArguments("\"groups\" must be a list of 1 to " + MAX_GROUPS_ARG
+                            + " group numbers; " + usage(name));
+                }
+                for (Object g : list) {
+                    if (wholeNumber(g) == null || wholeNumber(g) < 1 || wholeNumber(g) > LiveValueId.MAX_GROUP) {
+                        throw new InvalidArguments("\"groups\" entries must be whole numbers 1..255, not "
+                                + Text.quote(String.valueOf(g)) + "; " + usage(name));
+                    }
+                }
+            }
+        }
+        if (name.equals(READ_LIVE_DATA) || name.equals(RECORD_LIVE_DATA)) {
+            Object values = args.get(VALUES_ARG);
+            if (!(values instanceof List<?> list) || list.isEmpty() || list.size() > ScanService.MAX_LIVE_VALUES) {
+                throw new InvalidArguments("\"values\" must be a list of 1 to " + ScanService.MAX_LIVE_VALUES
+                        + " value IDs; " + usage(name));
+            }
+            for (Object v : list) {
+                if (!(v instanceof String text) || LiveValueId.tryParse(text).isEmpty()) {
+                    throw new InvalidArguments("value IDs look like \"01:011.3\" (module : group . field), not "
+                            + Text.quote(String.valueOf(v)) + "; take them from list_available_data. " + usage(name));
+                }
+            }
+        }
+        if (name.equals(RECORD_LIVE_DATA)) {
+            Long seconds = wholeNumber(args.get(SECONDS_ARG));
+            if (seconds == null || seconds < ScanService.MIN_RECORDING.toSeconds()
+                    || seconds > ScanService.MAX_RECORDING.toSeconds()) {
+                throw new InvalidArguments("\"seconds\" must be a whole number from "
+                        + ScanService.MIN_RECORDING.toSeconds() + " to " + ScanService.MAX_RECORDING.toSeconds() + "; "
+                        + usage(name));
+            }
+        }
         // Backstop: the published input schema must accept it too (the hand checks above are stricter).
         var result = schemaValidator.validate(tool.definition().inputSchema(), args);
         if (!result.valid()) {
@@ -258,10 +373,44 @@ final class McpTools {
         return ModuleAddress.parse((String) args.get(MODULE_ARG)); // validated before
     }
 
+    /** A JSON whole number (an integer, or a number with no fraction), else null. */
+    private static Long wholeNumber(Object o) {
+        if (o instanceof Integer || o instanceof Long || o instanceof Short || o instanceof Byte) {
+            return ((Number) o).longValue();
+        }
+        if (o instanceof java.math.BigInteger b && b.bitLength() < 63) {
+            return b.longValue();
+        }
+        return null;
+    }
+
+    private static java.util.Optional<String> query(Map<String, Object> args) {
+        return java.util.Optional.ofNullable((String) args.get(QUERY_ARG)).map(String::strip);
+    }
+
+    private static List<Integer> groups(Map<String, Object> args) {
+        Object g = args.get(GROUPS_ARG);
+        if (!(g instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().map(x -> wholeNumber(x).intValue()).distinct().toList();
+    }
+
+    private static List<LiveValueId> valueIds(Map<String, Object> args) {
+        return ((List<?>) args.get(VALUES_ARG)).stream()
+                .map(v -> LiveValueId.tryParse((String) v).orElseThrow()).toList(); // validated before
+    }
+
     private static String usage(String tool) {
-        return tool.equals(READ_FAULT_CODES)
-                ? "read_fault_codes takes exactly {\"module\": \"<two hex digits>\"}, e.g. {\"module\": \"01\"}."
-                : tool + " takes no arguments: call it with {}.";
+        return switch (tool) {
+            case READ_FAULT_CODES -> "read_fault_codes takes exactly {\"module\": \"<two hex digits>\"}, e.g. "
+                    + "{\"module\": \"01\"}.";
+            case LIST_AVAILABLE_DATA -> "list_available_data takes {\"module\": \"01\"} and optionally "
+                    + "\"groups\": [1, 11] and/or \"query\": \"boost\".";
+            case READ_LIVE_DATA -> "read_live_data takes {\"values\": [\"01:001.1\", \"01:011.3\"]}.";
+            case RECORD_LIVE_DATA -> "record_live_data takes {\"values\": [\"01:011.3\"], \"seconds\": 30}.";
+            default -> tool + " takes no arguments: call it with {}.";
+        };
     }
 
     // ------------------------------------------------------------------ errors

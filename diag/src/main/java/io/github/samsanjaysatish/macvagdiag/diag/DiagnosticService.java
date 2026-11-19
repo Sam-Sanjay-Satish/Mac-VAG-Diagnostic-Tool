@@ -90,4 +90,15 @@ public interface DiagnosticService {
      * {@link DiagResult.Negative}.
      */
     DiagResult<Odometer> readOdometer() throws InterruptedException;
+
+    /**
+     * One measuring block, KWP {@code 21 [group]} → {@code 61 [group]} + triplets (one request). Fields 1..4 are
+     * decoded with the KWP measuring-value formulas; see {@link MeasuringBlock}.
+     *
+     * <p><b>UDS:</b> UDS modules have no measuring groups (their live values are DIDs, not built yet): returns
+     * {@link DiagResult.NotAvailable} and sends nothing.
+     *
+     * @throws IllegalArgumentException if {@code group} is not 1..255; nothing is sent
+     */
+    DiagResult<MeasuringBlock> readMeasuringBlock(int group) throws InterruptedException;
 }

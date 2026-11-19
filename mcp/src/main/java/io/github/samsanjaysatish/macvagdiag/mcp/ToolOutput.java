@@ -4,6 +4,11 @@ import io.github.samsanjaysatish.macvagdiag.scan.EcuInfo;
 import io.github.samsanjaysatish.macvagdiag.scan.FaultCode;
 import io.github.samsanjaysatish.macvagdiag.scan.FreezeFrameData;
 import io.github.samsanjaysatish.macvagdiag.scan.LimitHit;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataCatalog;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataRecording;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveDataSnapshot;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveSeries;
+import io.github.samsanjaysatish.macvagdiag.scan.LiveValue;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress;
 import io.github.samsanjaysatish.macvagdiag.scan.GatewayStatus;
 import io.github.samsanjaysatish.macvagdiag.scan.ModuleAvailability;
@@ -192,6 +197,187 @@ final class ToolOutput {
         out.put("modules", modules);
         out.put("timestamp", ts(at));
         return out;
+    }
+
+    // ------------------------------------------------------------------ live data (v2)
+
+    /** Most fields listed in one list_available_data answer; more are cut (truncated: true). */
+    static final int MAX_LISTED_FIELDS = 120;
+
+    static Map<String, Object> availableData(LiveDataCatalog c, Optional<String> query, List<Integer> groups,
+            boolean demo) {
+        Instant at = c.checkedAt();
+        String q = query.map(x -> x.toLowerCase(java.util.Locale.ROOT)).orElse(null);
+        boolean detailed = q != null || !groups.isEmpty();
+        List<Object> list = new ArrayList<>();
+        int listed = 0;
+        boolean truncated = false;
+        for (LiveDataCatalog.Group g : c.groups()) {
+            if (!groups.isEmpty() && !groups.contains(g.group())) {
+                continue;
+            }
+            List<LiveDataCatalog.Field> fields = g.fields();
+            if (q != null) {
+                boolean titleHit = g.title().toLowerCase(java.util.Locale.ROOT).contains(q);
+                fields = titleHit ? fields : fields.stream()
+                        .filter(f -> (f.name() + " " + f.quantity()).toLowerCase(java.util.Locale.ROOT).contains(q))
+                        .toList();
+                if (fields.isEmpty()) {
+                    continue;
+                }
+            }
+            Map<String, Object> e = obj();
+            e.put("group", g.group());
+            e.put("title", blankToNull(g.title()));
+            e.put("fieldCount", g.fields().size());
+            if (detailed) {
+                if (listed + fields.size() > MAX_LISTED_FIELDS) {
+                    truncated = true;
+                    break;
+                }
+                List<Object> fl = new ArrayList<>();
+                for (LiveDataCatalog.Field f : fields) {
+                    Map<String, Object> fm = obj();
+                    fm.put("id", f.id().toString());
+                    fm.put("name", blankToNull(f.name()));
+                    fm.put("quantity", blankToNull(f.quantity()));
+                    fm.put("unit", blankToNull(f.unit()));
+                    fm.put("specs", List.copyOf(f.specs()));
+                    fm.put("timestamp", ts(at));
+                    fl.add(fm);
+                }
+                listed += fields.size();
+                e.put("fields", fl);
+            } else {
+                e.put("fields", null);
+            }
+            list.add(e);
+        }
+        Map<String, Object> out = obj();
+        out.put("demo", demo);
+        out.put("module", module(c.module()));
+        out.put("source", c.source().name());
+        out.put("partNumber", c.partNumber().orElse(null));
+        out.put("labelSource", c.labelSource().orElse(null));
+        out.put("labelTrail", List.copyOf(c.labelTrail()));
+        out.put("probedThrough", c.probedThrough());
+        out.put("withheldGroups", List.copyOf(c.withheldGroups()));
+        out.put("filter", !detailed ? null : (groups.isEmpty() ? "" : "groups " + groups)
+                + (q == null ? "" : (groups.isEmpty() ? "" : ", ") + "query " + Text.quote(query.get())));
+        out.put("groupCount", c.groups().size());
+        out.put("fieldCount", c.fieldCount());
+        out.put("groups", list);
+        out.put("truncated", truncated);
+        out.put("notes", List.copyOf(c.notes()));
+        out.put("limitHit", c.limitHit().map(ToolOutput::limitHit).orElse(null));
+        out.put("requests", c.requests());
+        out.put("timestamp", ts(at));
+        out.put("hint", switch (c.source()) {
+            case LABELS, PROBED -> detailed
+                    ? "Read values with read_live_data using the field IDs above (at most 4 groups per call)."
+                    : "Fields are not listed yet: call again with \"groups\" (e.g. [1, 11]) or a \"query\" to see "
+                            + "the field IDs, names and specs.";
+            case PROBE_INCOMPLETE -> "No label file: groups are found by asking the module, 40 per call. Call "
+                    + "list_available_data again to continue (groups up to " + c.probedThrough() + " asked so far).";
+            case NOT_SUPPORTED -> "This module has no measuring blocks that can be read here. Modules with them: "
+                    + "the KWP2000 ones (01, 02, 03, 08, 09, 19, 44).";
+            case NOT_RESPONDING -> "The module did not answer: call list_modules, and ask the user whether the "
+                    + "ignition is on.";
+        });
+        return out;
+    }
+
+    static Map<String, Object> liveData(LiveDataSnapshot r, boolean demo) {
+        Map<String, Object> out = obj();
+        out.put("demo", demo);
+        out.put("module", module(r.module()));
+        out.put("status", r.status().name());
+        out.put("labelSource", r.labelSource().orElse(null));
+        List<Object> values = new ArrayList<>();
+        for (LiveValue v : r.values()) {
+            values.add(liveValue(v));
+        }
+        out.put("values", values);
+        out.put("notes", List.copyOf(r.notes()));
+        out.put("limitHit", r.limitHit().map(ToolOutput::limitHit).orElse(null));
+        out.put("requests", r.requests());
+        out.put("startedAt", ts(r.startedAt()));
+        out.put("timestamp", ts(r.finishedAt()));
+        return out;
+    }
+
+    private static Map<String, Object> liveValue(LiveValue v) {
+        Map<String, Object> out = obj();
+        out.put("id", v.id().toString());
+        out.put("name", blankToNull(v.name()));
+        out.put("quantity", blankToNull(v.quantity()));
+        out.put("value", v.value().map(ToolOutput::number).orElse(null));
+        out.put("text", v.text());
+        out.put("unit", blankToNull(v.unit()));
+        out.put("raw", blankToNull(v.raw()));
+        out.put("state", v.state().name());
+        out.put("problem", v.problem().orElse(null));
+        out.put("specs", List.copyOf(v.specs()));
+        out.put("timestamp", ts(v.readAt()));
+        return out;
+    }
+
+    static Map<String, Object> recording(LiveDataRecording r, boolean demo) {
+        Map<String, Object> out = obj();
+        out.put("demo", demo);
+        out.put("module", module(r.module()));
+        out.put("recordingId", r.id());
+        out.put("status", r.status().name());
+        out.put("labelSource", r.labelSource().orElse(null));
+        out.put("rounds", r.rounds());
+        out.put("requestedSeconds", (int) r.requested().toSeconds()); // int: as JSON reads it back
+        out.put("recordedSeconds", r.recorded().toMillis() / 1000.0);
+        out.put("file", r.file().map(p -> p.toAbsolutePath().toString()).orElse(null));
+        List<Object> series = new ArrayList<>();
+        for (LiveSeries s : r.series()) {
+            Map<String, Object> m = obj();
+            m.put("id", s.id().toString());
+            m.put("name", blankToNull(s.name()));
+            m.put("quantity", blankToNull(s.quantity()));
+            m.put("unit", blankToNull(s.unit()));
+            m.put("specs", List.copyOf(s.specs()));
+            m.put("samples", s.samples());
+            m.put("decoded", s.decoded());
+            m.put("min", s.min().map(ToolOutput::number).orElse(null));
+            m.put("max", s.max().map(ToolOutput::number).orElse(null));
+            m.put("average", s.average().map(ToolOutput::number).orElse(null));
+            m.put("first", s.first().map(ToolOutput::number).orElse(null));
+            m.put("last", s.last().map(ToolOutput::number).orElse(null));
+            m.put("minAtSeconds", s.minAtSeconds().orElse(null));
+            m.put("maxAtSeconds", s.maxAtSeconds().orElse(null));
+            m.put("events", List.copyOf(s.events()));
+            m.put("timestamp", ts(r.finishedAt()));
+            series.add(m);
+        }
+        out.put("series", series);
+        out.put("notes", List.copyOf(r.notes()));
+        out.put("limitHit", r.limitHit().map(ToolOutput::limitHit).orElse(null));
+        out.put("requests", r.requests());
+        out.put("startedAt", ts(r.startedAt()));
+        out.put("timestamp", ts(r.finishedAt()));
+        return out;
+    }
+
+    /**
+     * A decoded number as JSON writes and reads it back: whole numbers as int / long, others as double (the
+     * values have at most 2 decimals, so nothing is lost), so the structured result equals its text copy.
+     */
+    static Number number(java.math.BigDecimal b) {
+        java.math.BigDecimal s = b.stripTrailingZeros();
+        if (s.scale() <= 0) {
+            long l = s.longValueExact();
+            return l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE ? (Number) (int) l : (Number) l;
+        }
+        return b.doubleValue();
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isEmpty() ? null : s;
     }
 
     // ------------------------------------------------------------------ shared shapes

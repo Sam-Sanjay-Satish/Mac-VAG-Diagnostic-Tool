@@ -38,6 +38,8 @@ public final class FakeScanService implements ScanService {
     private final List<Call> calls = Collections.synchronizedList(new ArrayList<>());
     private final List<ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, AutoScanJob> jobs = new ConcurrentHashMap<>();
+    private final Map<ModuleAddress, LiveDataCatalog> catalogs = new ConcurrentHashMap<>();
+    private final Map<ModuleAddress, LiveDataCatalog> listedCatalogs = new ConcurrentHashMap<>();
 
     public FakeScanService status(SessionStatus value) {
         status = Objects.requireNonNull(value);
@@ -144,6 +146,58 @@ public final class FakeScanService implements ScanService {
     public Optional<AutoScanJob> findAutoScan(String scanId) {
         call("findAutoScan", null, scanId);
         return Optional.ofNullable(jobs.get(scanId));
+    }
+
+    /** {@link SampleScanData#liveDataCatalog}; remembered, so reads are checked against it like the real service. */
+    @Override
+    public LiveDataCatalog liveDataCatalog(Caller caller, ModuleAddress module) {
+        call("liveDataCatalog", caller, module.hex());
+        LiveDataCatalog c = catalogs.getOrDefault(module, SampleScanData.liveDataCatalog(module));
+        listedCatalogs.put(module, c);
+        return c;
+    }
+
+    /** Replaces the sample catalog of {@code module}. */
+    public FakeScanService liveDataCatalog(ModuleAddress module, LiveDataCatalog value) {
+        catalogs.put(module, value);
+        return this;
+    }
+
+    @Override
+    public LiveDataSnapshot readLiveData(Caller caller, List<LiveValueId> values) {
+        call("readLiveData", caller, values == null ? "" : values.toString());
+        check(values);
+        return SampleScanData.liveDataSnapshot(values);
+    }
+
+    @Override
+    public LiveDataRecording recordLiveData(Caller caller, List<LiveValueId> values, java.time.Duration duration) {
+        call("recordLiveData", caller, (values == null ? "" : values.toString()) + " " + duration);
+        if (duration == null || duration.compareTo(MIN_RECORDING) < 0 || duration.compareTo(MAX_RECORDING) > 0) {
+            throw new InvalidLiveValueException("recording duration must be 1 to 120 seconds");
+        }
+        check(values);
+        return SampleScanData.liveDataRecording(values, duration);
+    }
+
+    /** The same checks as the real service, against the catalogs listed so far. */
+    private void check(List<LiveValueId> values) {
+        if (values == null || values.isEmpty() || values.size() > MAX_LIVE_VALUES) {
+            throw new InvalidLiveValueException("pass 1 to " + MAX_LIVE_VALUES + " value IDs");
+        }
+        ModuleAddress m = values.getFirst().module();
+        LiveDataCatalog c = listedCatalogs.get(m);
+        if (c == null) {
+            throw new InvalidLiveValueException("no catalog for module " + m.hex() + " yet: list its available data first");
+        }
+        for (LiveValueId id : values) {
+            if (!id.module().equals(m) || c.field(id).isEmpty()) {
+                throw new InvalidLiveValueException("value " + id + " is not in module " + m.hex() + "'s catalog");
+            }
+        }
+        if (values.stream().map(LiveValueId::group).distinct().count() > MAX_LIVE_GROUPS) {
+            throw new InvalidLiveValueException("too many groups");
+        }
     }
 
     @Override

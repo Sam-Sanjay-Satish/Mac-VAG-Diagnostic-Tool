@@ -1,5 +1,6 @@
 package io.github.samsanjaysatish.macvagdiag.scan;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +54,44 @@ public interface ScanService extends AutoCloseable {
 
     /** The identification of modules 01, 17 and 19, and the mileage from 17. The VIN is never read. */
     VehicleInfo vehicleInfo(Caller caller) throws InterruptedException;
+
+    /** Most values per {@link #readLiveData} / {@link #recordLiveData} call. */
+    int MAX_LIVE_VALUES = 16;
+    /** Most distinct measuring-block groups per call (each group is one {@code 21 gg} request). */
+    int MAX_LIVE_GROUPS = 4;
+    /** Recording length bounds. */
+    Duration MIN_RECORDING = Duration.ofSeconds(1);
+    Duration MAX_RECORDING = Duration.ofSeconds(120);
+
+    /**
+     * Which live values {@code module} offers (v2): its measuring-block groups and fields, with the label file's
+     * names and spec ranges when there is one. Opens the module and reads its identification to find the labels.
+     * Without a label file, each call asks the next 40 groups (see {@link LiveDataCatalog.Source#PROBE_INCOMPLETE}).
+     * UDS modules give {@link LiveDataCatalog.Source#NOT_SUPPORTED} and nothing is sent.
+     *
+     * @throws ScanRefusedException adapter missing, module in back-off, rate limit, service closed
+     */
+    LiveDataCatalog liveDataCatalog(Caller caller, ModuleAddress module) throws InterruptedException;
+
+    /**
+     * One reading of chosen values, all from one module and all from its last {@link #liveDataCatalog}. At most
+     * {@link #MAX_LIVE_VALUES} values from {@link #MAX_LIVE_GROUPS} groups.
+     *
+     * @throws InvalidLiveValueException before anything is sent: unknown or withheld ID, no catalog yet, too many
+     * @throws ScanRefusedException adapter missing, module in back-off, rate limit, service closed
+     */
+    LiveDataSnapshot readLiveData(Caller caller, List<LiveValueId> values) throws InterruptedException;
+
+    /**
+     * Reads chosen values repeatedly for {@code duration} ({@link #MIN_RECORDING}..{@link #MAX_RECORDING}): one
+     * group request every 250 ms at most. Returns a summary per value and, if the service has a recordings
+     * folder, every sample as a CSV file. Holds the request queue for the whole duration.
+     *
+     * @throws InvalidLiveValueException before anything is sent: bad IDs (as {@link #readLiveData}) or duration
+     * @throws ScanRefusedException adapter missing, module in back-off, rate limit, service closed
+     */
+    LiveDataRecording recordLiveData(Caller caller, List<LiveValueId> values, Duration duration)
+            throws InterruptedException;
 
     /**
      * Starts an Auto-Scan of every known module and returns at once. Progress goes to {@code listener} (may be null)

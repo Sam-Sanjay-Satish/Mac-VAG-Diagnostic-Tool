@@ -69,8 +69,8 @@ class NoBypassSourceTest {
             String where = fileName + ": " + m.group().replaceAll("\\s+", "");
             if (pkg == null || "*".equals(pkg) || "*".equals(type)) {
                 out.add(where + " (no wildcard or bare references to our packages)");
-            } else if ("scan".equals(pkg) || "diag".equals(pkg)) {
-                continue;
+            } else if ("scan".equals(pkg) || "diag".equals(pkg) || "labels".equals(pkg)) {
+                continue; // labels: plain file parsing, no bus access (approved with the v2 plan, 2026-11-19)
             } else if ("can".equals(pkg)) {
                 if (!wiring && (type == null || !ALLOWED_CAN.contains(type))) {
                     out.add(where + " (outside the wiring only can.TimeSource is allowed)");
@@ -80,7 +80,7 @@ class NoBypassSourceTest {
                     out.add(where + " (outside the wiring only transport.ApplicationProtocol/Response are allowed)");
                 }
             } else {
-                out.add(where + " (scan may only reference can, transport, diag and itself)");
+                out.add(where + " (scan may only reference can, transport, diag, labels and itself)");
             }
         }
         for (Pattern p : FORBIDDEN_EVERYWHERE) {

@@ -17,7 +17,8 @@ enum DiagOp {
     READ_DTCS("readDtcs"),
     READ_FREEZE_FRAME("readFreezeFrame"),
     READ_INSTALLATION_LIST("readInstallationList"),
-    READ_ODOMETER("readOdometer");
+    READ_ODOMETER("readOdometer"),
+    READ_MEASURING_BLOCK("readMeasuringBlock");
 
     final String label;
 
@@ -33,6 +34,8 @@ enum DiagOp {
             case START_SESSION, TESTER_PRESENT, READ_DTCS, READ_INSTALLATION_LIST, READ_ODOMETER -> 1;
             case READ_IDENTIFICATION -> kwp ? KwpDiagnosticService.MAX_IDENTIFICATION_REQUESTS
                     : UdsDiagnosticService.IDENTIFICATION_DIDS.size();
+            // 21 gg; UDS sends nothing (NotAvailable), and scan never asks a UDS module anyway
+            case READ_MEASURING_BLOCK -> kwp ? KwpDiagnosticService.MEASURING_BLOCK_REQUESTS : 0;
             case READ_FREEZE_FRAME -> kwp ? KwpDiagnosticService.FREEZE_FRAME_REQUESTS // 12 00 04 hi lo
                     : UdsDiagnosticService.FREEZE_FRAME_REQUESTS; // 19 04 + 19 06
         };

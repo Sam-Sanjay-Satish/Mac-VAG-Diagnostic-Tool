@@ -10,6 +10,7 @@ import io.github.samsanjaysatish.macvagdiag.diag.EcuIdentification;
 import io.github.samsanjaysatish.macvagdiag.diag.FakeDiagnosticService;
 import io.github.samsanjaysatish.macvagdiag.diag.FreezeFrame;
 import io.github.samsanjaysatish.macvagdiag.diag.InstallationList;
+import io.github.samsanjaysatish.macvagdiag.diag.MeasuringBlock;
 import io.github.samsanjaysatish.macvagdiag.diag.Odometer;
 import io.github.samsanjaysatish.macvagdiag.diag.RawBytes;
 import io.github.samsanjaysatish.macvagdiag.transport.ApplicationProtocol;
@@ -358,6 +359,11 @@ public final class FakeModuleConnector implements ModuleConnector {
         @Override
         public DiagResult<Odometer> readOdometer() {
             return call("READ_ODOMETER", fake::readOdometer);
+        }
+
+        @Override
+        public DiagResult<MeasuringBlock> readMeasuringBlock(int group) {
+            return call("READ_MEASURING_BLOCK", () -> fake.readMeasuringBlock(group));
         }
     }
 }

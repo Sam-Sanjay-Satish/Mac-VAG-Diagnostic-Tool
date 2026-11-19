@@ -53,6 +53,9 @@ class PublicApiTest {
         }
         assertEquals(new TreeSet<>(List.of("autoScan[Caller, ScanProgressListener]", "close[]",
                 "findAutoScan[String]", "isDemo[]", "knownModules[]", "listModules[Caller]",
+                // v2 live data (2026-11-19): typed, read-only, value IDs checked against the module's catalog.
+                "liveDataCatalog[Caller, ModuleAddress]", "readLiveData[Caller, List]",
+                "recordLiveData[Caller, List, Duration]",
                 "readFaultCodes[Caller, ModuleAddress]", "recordToolCall[ToolCallRecord]", "sessionStatus[Caller]",
                 "startAutoScan[Caller, ScanProgressListener]", "vehicleInfo[Caller]")), methods);
         for (Method m : ScanService.class.getMethods()) {

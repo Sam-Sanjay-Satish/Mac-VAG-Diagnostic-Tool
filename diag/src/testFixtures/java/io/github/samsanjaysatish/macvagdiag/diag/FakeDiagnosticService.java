@@ -21,7 +21,7 @@ import java.util.OptionalInt;
  * <p>Each {@code on...} call queues one result for that operation; results are used in order, and an operation
  * with nothing queued throws {@link IllegalStateException} (so a test notices an unexpected call). Every call is
  * recorded in {@link #calls()}. Scriptable operations: {@code onStartSession}, {@code onTesterPresent},
- * {@code onReadIdentification}, {@code onReadDtcs}, {@code onReadFreezeFrame}, {@code onReadInstallationList}, {@code onReadOdometer}. Like the real services, a session or DTC of the other protocol throws
+ * {@code onReadIdentification}, {@code onReadDtcs}, {@code onReadFreezeFrame}, {@code onReadInstallationList}, {@code onReadOdometer}, {@code onReadMeasuringBlock}. Like the real services, a session or DTC of the other protocol throws
  * {@link IllegalArgumentException}. Not thread-safe (the real services aren't either).
  *
  * <p>Get it with {@code testImplementation(testFixtures(project(":diag")))}.
@@ -29,9 +29,9 @@ import java.util.OptionalInt;
 public final class FakeDiagnosticService implements DiagnosticService {
 
     public enum Operation { START_SESSION, TESTER_PRESENT, READ_IDENTIFICATION, READ_DTCS, READ_FREEZE_FRAME, READ_INSTALLATION_LIST,
-        READ_ODOMETER }
+        READ_ODOMETER, READ_MEASURING_BLOCK }
 
-    /** One recorded call; {@code argument} is the session or DTC, or null. */
+    /** One recorded call; {@code argument} is the session, DTC or measuring-block group, or null. */
     public record Call(Operation operation, Object argument) {
         public Call {
             Objects.requireNonNull(operation, "operation");
@@ -46,6 +46,7 @@ public final class FakeDiagnosticService implements DiagnosticService {
     private final Deque<DiagResult<FreezeFrame>> freezeFrames = new ArrayDeque<>();
     private final Deque<DiagResult<InstallationList>> installationLists = new ArrayDeque<>();
     private final Deque<DiagResult<Odometer>> odometers = new ArrayDeque<>();
+    private final Deque<DiagResult<MeasuringBlock>> measuringBlocks = new ArrayDeque<>();
     private final List<Call> calls = new ArrayList<>();
 
     public FakeDiagnosticService(ApplicationProtocol protocol) {
@@ -79,6 +80,15 @@ public final class FakeDiagnosticService implements DiagnosticService {
     /** An installation list of {@code [address, tp20, status, group]} entries, with no raw response. */
     public static InstallationList installationList(InstallationList.Entry... entries) {
         return new InstallationList(List.of(entries), RawBytes.EMPTY, RawBytes.EMPTY, List.of());
+    }
+
+    /**
+     * A measuring block parsed from the whole response, e.g.
+     * {@code measuringBlock(7, "61 07 05 09 8F 25 00 00 05 09 83 05 09 AF")}; throws if it doesn't parse.
+     */
+    public static MeasuringBlock measuringBlock(int group, String responseHex) {
+        return MeasuringBlock.parse(group, RawBytes.ofHex(responseHex)).valueIfSuccess()
+                .orElseThrow(() -> new IllegalArgumentException("not a measuring block: " + responseHex));
     }
 
     /** An odometer reading of {@code kilometres}, with no raw response. */
@@ -125,6 +135,11 @@ public final class FakeDiagnosticService implements DiagnosticService {
 
     public FakeDiagnosticService onReadOdometer(DiagResult<Odometer> result) {
         odometers.add(Objects.requireNonNull(result));
+        return this;
+    }
+
+    public FakeDiagnosticService onReadMeasuringBlock(DiagResult<MeasuringBlock> result) {
+        measuringBlocks.add(Objects.requireNonNull(result));
         return this;
     }
 
@@ -177,6 +192,14 @@ public final class FakeDiagnosticService implements DiagnosticService {
         return next(Operation.READ_ODOMETER, null, odometers);
     }
 
+    @Override
+    public DiagResult<MeasuringBlock> readMeasuringBlock(int group) {
+        if (group < 1 || group > 0xFF) {
+            throw new IllegalArgumentException("measuring block group must be 1..255: " + group);
+        }
+        return next(Operation.READ_MEASURING_BLOCK, group, measuringBlocks);
+    }
+
     private <T> DiagResult<T> next(Operation op, Object argument, Deque<DiagResult<T>> queue) {
         calls.add(new Call(op, argument));
         DiagResult<T> r = queue.poll();
@@ -194,6 +217,7 @@ public final class FakeDiagnosticService implements DiagnosticService {
     /** True if every scripted result was used. */
     public boolean allScriptUsed() {
         return sessions.isEmpty() && testerPresents.isEmpty() && identifications.isEmpty() && dtcLists.isEmpty()
-                && freezeFrames.isEmpty() && installationLists.isEmpty() && odometers.isEmpty();
+                && freezeFrames.isEmpty() && installationLists.isEmpty() && odometers.isEmpty()
+                && measuringBlocks.isEmpty();
     }
 }

@@ -9,6 +9,8 @@ dependencies {
     // implementation, not api: front ends (server, mcp) must not even compile against diag or transport.
     // ScanService exposes scan types only (PublicApiTest), so nothing below scan leaks to them.
     implementation(project(":diag"))
+    // Label files for live-data names and specs; wrapped in scan types (PublicApiTest), never exposed.
+    implementation(project(":labels"))
     // CanAdapter and TimeSource appear in ScanServiceFactory, which the front ends call at startup.
     api(project(":can-core"))
 
@@ -16,8 +18,10 @@ dependencies {
     testFixturesApi(testFixtures(project(":diag")))
     testFixturesApi(testFixtures(project(":can-core")))
     testFixturesImplementation(project(":diag"))
+    testFixturesImplementation(project(":labels"))
 
     // The real diag / transport classes for the full-stack tests (RequestGuard, Hex).
     testImplementation(project(":diag"))
+    testImplementation(project(":labels"))
     testImplementation(testFixtures(project(":transport")))
 }

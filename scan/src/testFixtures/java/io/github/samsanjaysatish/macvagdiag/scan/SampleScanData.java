@@ -142,4 +142,85 @@ public final class SampleScanData {
         }
         return b.toString();
     }
+
+    // ---- live data (v2): made-up values, labels written for the sample, not from a real label file ----
+
+    /** The engine's sample catalog: groups 001 and 007 labelled; group 081 withheld. */
+    public static LiveDataCatalog liveDataCatalog(ModuleAddress m) {
+        if (!LiveDataEngine.supported(m)) {
+            return new LiveDataCatalog(m, LiveDataCatalog.Source.NOT_SUPPORTED, Optional.empty(), Optional.empty(),
+                    List.of(), List.of(), List.of(), 0, List.of("module " + m.hex() + " speaks UDS: not readable yet"),
+                    Optional.empty(), 0, AT);
+        }
+        if (!m.equals(ModuleAddress.ENGINE)) {
+            return new LiveDataCatalog(m, LiveDataCatalog.Source.PROBED, Optional.of("1K0907379AC"), Optional.empty(),
+                    List.of("no label file for 1K0-907-379-AC at " + m.hex()), List.of(), List.of(), 255,
+                    List.of("no label file: every group 001..255 was asked; none answered"), Optional.empty(), 7, AT);
+        }
+        LiveDataCatalog.Group g1 = new LiveDataCatalog.Group(1, "Sample Basic Values", List.of(
+                field(m, 1, 1, "Engine Speed (sample)", "Range: 0...5000 /min", "Specification (Idle): 780...920 /min"),
+                field(m, 1, 4, "Coolant Temperature (sample)", "Range: -40.0...+130.0 °C")));
+        LiveDataCatalog.Group g7 = new LiveDataCatalog.Group(7, "Sample Temperatures", List.of(
+                field(m, 7, 1, "Fuel Temperature (sample)"),
+                field(m, 7, 2, "Oil Temperature (sample)")));
+        return new LiveDataCatalog(m, LiveDataCatalog.Source.LABELS, Optional.of("03L906018XX"),
+                Optional.of("03L-906-018.lbl"), List.of("03L-906-018.lbl"), List.of(g1, g7), List.of(81), 0,
+                List.of(), Optional.empty(), 2, AT);
+    }
+
+    private static LiveDataCatalog.Field field(ModuleAddress m, int group, int field, String name, String... specs) {
+        return new LiveDataCatalog.Field(new LiveValueId(m, group, field), name, "", "", List.of(specs));
+    }
+
+    /** One sample value per ID: engine speed 828 /min, coolant 87.3 °C, fuel 38.7 °C, oil empty, else not read. */
+    public static LiveValue liveValue(LiveValueId id) {
+        LiveDataCatalog.Field f = liveDataCatalog(id.module()).field(id)
+                .orElse(new LiveDataCatalog.Field(id, "", "", "", List.of()));
+        String key = String.format("%03d.%d", id.group(), id.field());
+        return switch (key) {
+            case "001.1" -> ok(f, "RPM", "/min", "828", "01 73 24");
+            case "001.4" -> ok(f, "Temperature", "°C", "87.3", "05 09 C1");
+            case "007.1" -> ok(f, "Temperature", "°C", "38.7", "05 09 8F");
+            case "007.2" -> new LiveValue(id, f.name(), "", "", Optional.empty(), "(empty)", "25 00 00", f.specs(),
+                    LiveValue.State.EMPTY, Optional.of("the module sent no value for this field (25 00 00)"), AT);
+            default -> new LiveValue(id, f.name(), "", "", Optional.empty(), "(not read)", "", f.specs(),
+                    LiveValue.State.NOT_READ, Optional.of("not in the sample"), AT);
+        };
+    }
+
+    private static LiveValue ok(LiveDataCatalog.Field f, String quantity, String unit, String value, String raw) {
+        return new LiveValue(f.id(), f.name(), quantity, unit, Optional.of(new java.math.BigDecimal(value)),
+                value + " " + unit, raw, f.specs(), LiveValue.State.OK, Optional.empty(), AT);
+    }
+
+    public static LiveDataSnapshot liveDataSnapshot(List<LiveValueId> ids) {
+        ModuleAddress m = ids.getFirst().module();
+        List<LiveValue> values = ids.stream().map(SampleScanData::liveValue).toList();
+        boolean all = values.stream().allMatch(v -> v.state() != LiveValue.State.NOT_READ);
+        return new LiveDataSnapshot(m, all ? LiveDataSnapshot.Status.OK : LiveDataSnapshot.Status.PARTIAL,
+                liveDataCatalog(m).labelSource(), values, List.of(), Optional.empty(), 2, AT, AT.plusMillis(150));
+    }
+
+    /** A 10-sample recording summary of each ID (engine speed 820..900 /min; the rest as {@link #liveValue}). */
+    public static LiveDataRecording liveDataRecording(List<LiveValueId> ids, java.time.Duration duration) {
+        ModuleAddress m = ids.getFirst().module();
+        List<LiveSeries> series = new ArrayList<>();
+        for (LiveValueId id : ids) {
+            LiveValue v = liveValue(id);
+            if (id.group() == 1 && id.field() == 1) {
+                series.add(new LiveSeries(id, v.name(), "RPM", "/min", v.specs(), 10, 10,
+                        Optional.of(new java.math.BigDecimal("820")), Optional.of(new java.math.BigDecimal("900")),
+                        Optional.of(new java.math.BigDecimal("851.6")), Optional.of(new java.math.BigDecimal("828")),
+                        Optional.of(new java.math.BigDecimal("900")), Optional.of(1.0), Optional.of(9.0), List.of()));
+            } else {
+                Optional<java.math.BigDecimal> x = v.value();
+                series.add(new LiveSeries(id, v.name(), v.quantity(), v.unit(), v.specs(), 10, x.isPresent() ? 10 : 0,
+                        x, x, x, x, x, x.map(y -> 0.0), x.map(y -> 0.0),
+                        x.isPresent() ? List.of("constant at " + v.text()) : List.of("always empty: the module sent no value")));
+            }
+        }
+        return new LiveDataRecording("record-live-data-1", m, LiveDataSnapshot.Status.OK, liveDataCatalog(m).labelSource(),
+                series, 10, duration, duration, Optional.of(java.nio.file.Path.of("/tmp/macvagdiag/record-live-data-1.csv")),
+                List.of(), Optional.empty(), 12, AT, AT.plus(duration));
+    }
 }

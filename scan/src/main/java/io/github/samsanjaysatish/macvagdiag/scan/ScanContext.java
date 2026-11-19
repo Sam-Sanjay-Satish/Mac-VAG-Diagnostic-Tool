@@ -16,12 +16,31 @@ final class ScanContext {
     final String operation;
     private final BooleanSupplier cancelled;
     private final Map<ModuleAddress, Integer> requests = new HashMap<>();
+    /** A per-module budget for this call instead of {@link ScanLimits#maxRequestsPerModulePerScan()}; 0 = none. */
+    private volatile int moduleBudget;
 
     ScanContext(String id, Caller caller, String operation, BooleanSupplier cancelled) {
         this.id = Objects.requireNonNull(id, "id");
         this.caller = Objects.requireNonNull(caller, "caller");
         this.operation = Objects.requireNonNull(operation, "operation");
         this.cancelled = Objects.requireNonNull(cancelled, "cancelled");
+    }
+
+    /**
+     * Gives this call its own per-module budget (live-data recordings, whose request count follows the duration,
+     * bounded by {@code LiveDataEngine}). The one-minute window still applies.
+     */
+    void moduleBudget(int budget) {
+        if (budget < 1) {
+            throw new IllegalArgumentException("budget must be positive: " + budget);
+        }
+        moduleBudget = budget;
+    }
+
+    /** The per-module budget for this call. */
+    int moduleBudget(ScanLimits limits) {
+        int b = moduleBudget;
+        return b > 0 ? b : limits.maxRequestsPerModulePerScan();
     }
 
     boolean cancelled() {

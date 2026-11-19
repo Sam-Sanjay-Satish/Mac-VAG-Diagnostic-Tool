@@ -1,0 +1,8 @@
+; made-up AA-BB file for tests: redirects by part number pattern
+REDIRECT,03L-111-111-AAA.LBL,03L-997-030-A    
+REDIRECT,03L-111-111-AAA.LBL
+REDIRECT,03L-111-111-AAA.LBL,03L-997-030-M   ; the test engine
+REDIRECT,03L-222-222.LBL,03L-997-0??-???
+REDIRECT,SUBSYSTEM.LBL,03L-997-030-M,SL
+001,0,Generic Title From AA-BB
+001,1,Generic Field

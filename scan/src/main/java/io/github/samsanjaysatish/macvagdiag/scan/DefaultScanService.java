@@ -1,6 +1,11 @@
 package io.github.samsanjaysatish.macvagdiag.scan;
 
 import io.github.samsanjaysatish.macvagdiag.can.TimeSource;
+import io.github.samsanjaysatish.macvagdiag.labels.LabelLibrary;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -38,6 +43,8 @@ final class DefaultScanService implements ScanService {
     private final AuditLog audit;
     private final boolean demo;
     private final ScanEngine engine;
+    private final LiveDataEngine live;
+    private final Optional<Path> recordingsDirectory;
     private final RequestQueue queue = new RequestQueue();
     private final AtomicLong ids = new AtomicLong();
     private final Object scanLock = new Object();
@@ -46,11 +53,22 @@ final class DefaultScanService implements ScanService {
     private volatile boolean closed;
 
     DefaultScanService(ModuleConnector connector, TimeSource time, ScanLimits limits, AuditLog audit, boolean demo) {
+        this(connector, time, limits, audit, demo, LabelLibrary.empty(), Optional.empty());
+    }
+
+    /**
+     * @param labels label files for live-data names and specs
+     * @param recordingsDirectory where recordings' CSV files go; empty = not written
+     */
+    DefaultScanService(ModuleConnector connector, TimeSource time, ScanLimits limits, AuditLog audit, boolean demo,
+            LabelLibrary labels, Optional<Path> recordingsDirectory) {
         this.connector = Objects.requireNonNull(connector, "connector");
         this.time = Objects.requireNonNull(time, "time");
         this.audit = Objects.requireNonNull(audit, "audit");
         this.demo = demo;
         this.engine = new ScanEngine(connector, time, Objects.requireNonNull(limits, "limits"), audit);
+        this.live = new LiveDataEngine(engine, Objects.requireNonNull(labels, "labels"));
+        this.recordingsDirectory = Objects.requireNonNull(recordingsDirectory, "recordingsDirectory");
         connector.attach(engine);
         audit.service("start", demo ? "demo car (simulated, not a real vehicle)" : "CAN adapter");
     }
@@ -157,6 +175,96 @@ final class DefaultScanService implements ScanService {
         }
         Optional<Mileage> mileage = modules.stream().flatMap(m -> m.mileage().stream()).findFirst();
         return new VehicleInfo(mileage, modules, time.now(), demo);
+    }
+
+    @Override
+    public LiveDataCatalog liveDataCatalog(Caller caller, ModuleAddress module) throws InterruptedException {
+        Objects.requireNonNull(caller, "caller");
+        Objects.requireNonNull(module, "module");
+        requireOpen();
+        ScanContext ctx = newContext(caller, "live-data-catalog");
+        if (!LiveDataEngine.supported(module)) {
+            return live.catalog(ctx, module); // nothing is sent
+        }
+        return queue.call(() -> {
+            engine.requireAdapter(ctx);
+            engine.requireNotBackingOff(ctx, module);
+            engine.requireWindowRoom(ctx, module, MIN_FAULT_READ_COST);
+            return live.catalog(ctx, module);
+        });
+    }
+
+    private LiveDataEngine.Request validateLive(Caller caller, List<LiveValueId> values) {
+        try {
+            return live.validate(values);
+        } catch (InvalidLiveValueException e) {
+            ModuleAddress m = values == null || values.isEmpty() || values.getFirst() == null ? null
+                    : values.getFirst().module();
+            audit.refused(caller, null, m, "invalid-live-value", null, e.getMessage());
+            throw e;
+        }
+    }
+
+    @Override
+    public LiveDataSnapshot readLiveData(Caller caller, List<LiveValueId> values) throws InterruptedException {
+        Objects.requireNonNull(caller, "caller");
+        requireOpen();
+        LiveDataEngine.Request req = validateLive(caller, values);
+        ScanContext ctx = newContext(caller, "read-live-data");
+        return queue.call(() -> {
+            engine.requireAdapter(ctx);
+            engine.requireNotBackingOff(ctx, req.module());
+            engine.requireWindowRoom(ctx, req.module(), MIN_FAULT_READ_COST + req.groups().size());
+            return live.read(ctx, req);
+        });
+    }
+
+    @Override
+    public LiveDataRecording recordLiveData(Caller caller, List<LiveValueId> values, Duration duration)
+            throws InterruptedException {
+        Objects.requireNonNull(caller, "caller");
+        requireOpen();
+        try {
+            LiveDataEngine.validateDuration(duration);
+        } catch (InvalidLiveValueException e) {
+            audit.refused(caller, null, null, "invalid-live-value", null, e.getMessage());
+            throw e;
+        }
+        LiveDataEngine.Request req = validateLive(caller, values);
+        ScanContext ctx = newContext(caller, "record-live-data");
+        ctx.moduleBudget(LiveDataEngine.recordingBudget(duration));
+        LiveDataEngine.RecordingRun run = queue.call(() -> {
+            engine.requireAdapter(ctx);
+            engine.requireNotBackingOff(ctx, req.module());
+            engine.requireWindowRoom(ctx, req.module(), MIN_FAULT_READ_COST + req.groups().size());
+            audit.scan(ctx, "record-start", req.module().hex() + ": " + req.ids() + " for " + duration.toSeconds() + " s");
+            LiveDataEngine.RecordingRun r = live.record(ctx, req, duration);
+            audit.scan(ctx, "record-finish", r.recording().rounds() + " rounds, " + r.recording().requests()
+                    + " requests, " + r.recording().status());
+            return r;
+        });
+        return withFile(run);
+    }
+
+    /** Writes the CSV (if there is a folder and something was recorded) and puts its path in the result. */
+    private LiveDataRecording withFile(LiveDataEngine.RecordingRun run) {
+        LiveDataRecording r = run.recording();
+        if (recordingsDirectory.isEmpty() || r.rounds() == 0) {
+            return r;
+        }
+        Path file = recordingsDirectory.get().resolve(r.id() + ".csv");
+        List<String> notes = new ArrayList<>(r.notes());
+        Optional<Path> written = Optional.empty();
+        try {
+            Files.createDirectories(recordingsDirectory.get());
+            Files.writeString(file, run.csv(), StandardCharsets.UTF_8);
+            written = Optional.of(file);
+        } catch (IOException e) {
+            log.warn("Could not write recording {}", file, e);
+            notes.add("the CSV file could not be written (" + e.getMessage() + "); the summary is complete");
+        }
+        return new LiveDataRecording(r.id(), r.module(), r.status(), r.labelSource(), r.series(), r.rounds(),
+                r.requested(), r.recorded(), written, notes, r.limitHit(), r.requests(), r.startedAt(), r.finishedAt());
     }
 
     @Override

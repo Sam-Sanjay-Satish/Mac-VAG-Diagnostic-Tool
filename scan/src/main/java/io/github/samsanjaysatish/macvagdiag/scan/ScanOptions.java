@@ -1,6 +1,7 @@
 package io.github.samsanjaysatish.macvagdiag.scan;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -10,14 +11,17 @@ import java.util.Objects;
  * @param auditLog the append-only JSON-lines audit log; default {@link #defaultAuditLogPath()}
  * @param bitsPerSecond the diagnostic CAN bus speed the adapter is opened at
  * @param limits pacing, retries and budgets (clamped to hard bounds, see {@link ScanLimits})
+ * @param labelFolders label-file folders for live-data names and specs, searched in order (e.g. a user folder,
+ *        then the main one); empty = no labels. Demo mode uses made-up bundled labels instead.
  */
-public record ScanOptions(Path auditLog, int bitsPerSecond, ScanLimits limits) {
+public record ScanOptions(Path auditLog, int bitsPerSecond, ScanLimits limits, List<Path> labelFolders) {
 
     /** UNCONFIRMED: the Jetta's diagnostic CAN (OBD pins 6/14) is expected at 500 kbit/s. */
     public static final int DEFAULT_BITS_PER_SECOND = 500_000;
 
     static final String APP_DIRECTORY = "macvagdiag";
     static final String AUDIT_FILE = "audit.jsonl";
+    static final String RECORDINGS_DIRECTORY = "recordings";
 
     public ScanOptions {
         Objects.requireNonNull(auditLog, "auditLog");
@@ -25,6 +29,12 @@ public record ScanOptions(Path auditLog, int bitsPerSecond, ScanLimits limits) {
         if (bitsPerSecond <= 0) {
             throw new IllegalArgumentException("bitsPerSecond must be positive: " + bitsPerSecond);
         }
+        labelFolders = List.copyOf(labelFolders);
+    }
+
+    /** Without label folders. */
+    public ScanOptions(Path auditLog, int bitsPerSecond, ScanLimits limits) {
+        this(auditLog, bitsPerSecond, limits, List.of());
     }
 
     /** Default audit-log path, 500 kbit/s, {@link ScanLimits#DEFAULTS}. */
@@ -33,15 +43,25 @@ public record ScanOptions(Path auditLog, int bitsPerSecond, ScanLimits limits) {
     }
 
     public ScanOptions withAuditLog(Path path) {
-        return new ScanOptions(path, bitsPerSecond, limits);
+        return new ScanOptions(path, bitsPerSecond, limits, labelFolders);
     }
 
     public ScanOptions withBitsPerSecond(int value) {
-        return new ScanOptions(auditLog, value, limits);
+        return new ScanOptions(auditLog, value, limits, labelFolders);
     }
 
     public ScanOptions withLimits(ScanLimits value) {
-        return new ScanOptions(auditLog, bitsPerSecond, value);
+        return new ScanOptions(auditLog, bitsPerSecond, value, labelFolders);
+    }
+
+    public ScanOptions withLabelFolders(List<Path> folders) {
+        return new ScanOptions(auditLog, bitsPerSecond, limits, folders);
+    }
+
+    /** Where live-data recordings are written: {@code recordings/} next to the audit log. */
+    public Path recordingsDirectory() {
+        Path parent = auditLog.toAbsolutePath().getParent();
+        return (parent == null ? Path.of(".") : parent).resolve(RECORDINGS_DIRECTORY);
     }
 
     /**

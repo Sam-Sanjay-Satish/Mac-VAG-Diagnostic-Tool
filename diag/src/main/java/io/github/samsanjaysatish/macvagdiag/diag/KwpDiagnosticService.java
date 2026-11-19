@@ -24,6 +24,7 @@ import java.util.SequencedMap;
  *   <li>Freeze frame: {@code 12 00 04 [hi] [lo]}, one request per call (see {@link DiagnosticService#readFreezeFrame}
  *       for the order rule).</li>
  *   <li>Installation list (gateway): {@code 22 04 A1}. Odometer: {@code 22 22 03}.</li>
+ *   <li>Measuring blocks: {@code 21 [group]} → {@code 61 [group]} + triplets (v2, approved 2026-11-19).</li>
  * </ul>
  */
 public final class KwpDiagnosticService implements DiagnosticService {
@@ -49,6 +50,8 @@ public final class KwpDiagnosticService implements DiagnosticService {
 
     /** Most requests {@link #readIdentification} sends: {@code 1A 9B}, then the DIDs if it is refused. */
     public static final int MAX_IDENTIFICATION_REQUESTS = 1 + FALLBACK_DIDS.size();
+    /** Requests {@link #readMeasuringBlock} sends: one {@code 21 [group]}. */
+    public static final int MEASURING_BLOCK_REQUESTS = 1;
     /** Requests {@link #readFreezeFrame} sends: one {@code 12 00 04 [hi] [lo]}. */
     public static final int FREEZE_FRAME_REQUESTS = 1;
 
@@ -256,6 +259,16 @@ public final class KwpDiagnosticService implements DiagnosticService {
         DiagResult<RawBytes> r = exchange.run(DiagRequest.kwpReadDataByIdentifier(Odometer.DID));
         if (r instanceof DiagResult.Success<RawBytes> s) {
             return Odometer.parse(s.value());
+        }
+        return r.failure();
+    }
+
+    @Override
+    public DiagResult<MeasuringBlock> readMeasuringBlock(int group) throws InterruptedException {
+        DiagRequest request = DiagRequest.kwpReadMeasuringBlock(group);
+        DiagResult<RawBytes> r = exchange.run(request);
+        if (r instanceof DiagResult.Success<RawBytes> s) {
+            return MeasuringBlock.parse(group, s.value());
         }
         return r.failure();
     }

@@ -68,7 +68,8 @@ class GuardRejectionTest {
 
     /** Not on the allowlist and not on the forbidden list: must still be refused (default reject). */
     static final List<Arguments> UNKNOWN = List.of(
-            Arguments.of(KWP2000, "21 01"), Arguments.of(KWP2000, "21 00"),   // measuring blocks: excluded from v1
+            Arguments.of(KWP2000, "21 00"), Arguments.of(KWP2000, "21"),       // measuring blocks: only 21 01..FF
+            Arguments.of(KWP2000, "21 07 00"), Arguments.of(KWP2000, "21 07 01 02"),
             Arguments.of(KWP2000, "10 81"), Arguments.of(KWP2000, "10 86"), Arguments.of(KWP2000, "10 03"),
             Arguments.of(KWP2000, "10 89 01"), Arguments.of(KWP2000, "10"),
             Arguments.of(KWP2000, "3E 01"), Arguments.of(KWP2000, "3E 02"),
@@ -98,6 +99,7 @@ class GuardRejectionTest {
             Arguments.of(KWP2000, "12 00"), Arguments.of(KWP2000, "3E"),
             Arguments.of(KWP2000, "18 00 FF 00"), Arguments.of(KWP2000, "18 02 FF 00"),
             Arguments.of(KWP2000, "12 00 04 2B A6"), Arguments.of(KWP2000, "22 04 A1"),
+            Arguments.of(KWP2000, "21 01"), Arguments.of(KWP2000, "21 07"), Arguments.of(KWP2000, "21 FF"),
             Arguments.of(UDS, "10 01"), Arguments.of(UDS, "10 03"), Arguments.of(UDS, "3E 00"),
             Arguments.of(UDS, "19 01 FF"), Arguments.of(UDS, "19 02 FF"), Arguments.of(UDS, "19 04 00 04 01 FF"),
             Arguments.of(UDS, "19 06 00 04 01 FF"), Arguments.of(UDS, "22 F1 90"));
@@ -222,7 +224,7 @@ class GuardRejectionTest {
     void rejectionAfterAllowedRequestLeavesChannelUsable() throws Exception {
         DiagnosticChannel ch = openChannel(KWP2000);
         assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("27 01"), TIMEOUT));
-        assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("21 01"), TIMEOUT));
+        assertThrows(ForbiddenRequestException.class, () -> ch.request(Hex.parse("21 00"), TIMEOUT));
         assertEquals(List.of(), adapter.sentFrames());
         assertInstanceOf(Response.Received.class, ch.request(Hex.parse("1A 9B"), TIMEOUT));
     }

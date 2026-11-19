@@ -293,6 +293,9 @@ final class DemoCar implements SimulatedAdapter.Responder {
             }
             return m.dtcResponse();
         }
+        if (request.startsWith("21 ")) {
+            return measuringBlock(m.logicalAddress(), Integer.parseInt(request.substring(3), 16));
+        }
         return switch (request) {
             case "10 89" -> "50 89";
             case "3E" -> "7E";
@@ -300,6 +303,39 @@ final class DemoCar implements SimulatedAdapter.Responder {
             default -> request.startsWith("12 00 04 ") ? kwpFreezeFrame(ch, request.substring(9))
                     : String.format("7F %s 11", request.substring(0, 2));
         };
+    }
+
+    /** Counts measuring-block reads so the demo values move a little between reads. */
+    private static final java.util.concurrent.atomic.AtomicInteger MEASURING_READS = new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * {@code 21 gg}: made-up measuring blocks in the layout of the real engine (8 triplets, only 1–4 shown):
+     * engine 001 (RPM, injection quantity, rail pressure, coolant), 007 (fuel, oil = empty {@code 25 00 00}, intake,
+     * coolant), 011 (RPM, boost specified / actual, duty cycle); ABS (03, no demo labels) 001 and 005. Every other
+     * group: {@code 7F 21 31}. RPM and boost move a little from read to read.
+     */
+    private static String measuringBlock(int logicalAddress, int group) {
+        int n = MEASURING_READS.getAndIncrement();
+        int wobble = n % 5; // 0..4
+        String rest = " 25 00 00 25 00 00 25 00 00 25 00 00";
+        if (logicalAddress == 0x01) {
+            return switch (group) {
+                // 01 b = 0x74.. : RPM 0.2*a*b with a = 0x73 (115): 0x24 + wobble -> 828..920 /min
+                case 1 -> String.format("61 01 01 73 %02X 27 46 17 64 50 29 05 09 B0", 0x24 + wobble) + rest;
+                case 7 -> "61 07 05 09 8C 25 00 00 05 09 82 05 09 B0" + rest;
+                case 11 -> String.format("61 0B 01 73 %02X 60 79 53 60 79 %02X 21 FF 40", 0x24 + wobble, 0x50 + wobble)
+                        + rest;
+                default -> "7F 21 31";
+            };
+        }
+        if (logicalAddress == 0x03) {
+            return switch (group) {
+                case 1 -> "61 01 07 64 00 07 64 00 07 64 00 07 64 00" + rest; // four wheel speeds, 0.0 km/h
+                case 5 -> "61 05 06 4C B6 25 00 00 25 00 00 25 00 00" + rest;  // 13.83 V, then empty fields
+                default -> "7F 21 31";
+            };
+        }
+        return "7F 21 31";
     }
 
     /**

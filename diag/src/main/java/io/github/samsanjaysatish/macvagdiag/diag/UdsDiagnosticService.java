@@ -221,4 +221,13 @@ public final class UdsDiagnosticService implements DiagnosticService {
             records.add(new RawRecord(request.hex(), data));
         }
     }
+
+    /** UDS modules have no measuring groups: {@link DiagResult.NotAvailable}, nothing sent. */
+    @Override
+    public DiagResult<MeasuringBlock> readMeasuringBlock(int group) {
+        if (group < 1 || group > 0xFF) {
+            throw new IllegalArgumentException("measuring block group must be 1..255: " + group);
+        }
+        return new DiagResult.NotAvailable<>("measuring blocks are KWP2000 only; UDS live data (DIDs) is not built yet");
+    }
 }

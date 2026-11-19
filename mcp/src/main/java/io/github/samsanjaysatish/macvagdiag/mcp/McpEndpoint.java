@@ -42,7 +42,10 @@ public final class McpEndpoint implements AutoCloseable {
     static final String INSTRUCTIONS = """
             macvagdiag is a read-only diagnostic tool for a VW (2013 Jetta TDI), connected to the car through a CAN \
             adapter. It can read the session status, which modules respond, fault codes with status and freeze \
-            frame, and the vehicle's identification and mileage (the VIN is never read). It cannot clear codes, run output tests, change coding or \
+            frame, the vehicle's identification and mileage (the VIN is never read), and live data: \
+            list_available_data shows a module's measuring-block values with names and spec ranges from its label \
+            file, then read_live_data reads chosen values once and record_live_data records them for up to 120 s. \
+            It cannot clear codes, run output tests or basic settings, change coding or \
             adaptation, or send arbitrary requests, and no tool can. Start with get_session_status. Rate limits are \
             enforced by the tool: when a call is refused, follow the message (it says when to retry). Physical \
             conditions (ignition on, engine warm, held rpm, a test drive) need the human: ask the user to set them \

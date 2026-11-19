@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A <b>real</b> {@link ScanService} (queue, sessions, limits, audit log, all of it) on a
@@ -35,6 +36,11 @@ public final class TestScanServices implements AutoCloseable {
     private final DefaultScanService service;
 
     private TestScanServices(FakeTimeSource time, ScanLimits limits, Path auditFile, boolean demo) {
+        this(time, limits, auditFile, demo, io.github.samsanjaysatish.macvagdiag.labels.LabelLibrary.empty(), null);
+    }
+
+    private TestScanServices(FakeTimeSource time, ScanLimits limits, Path auditFile, boolean demo,
+            io.github.samsanjaysatish.macvagdiag.labels.LabelLibrary labels, Path recordings) {
         this.time = time;
         this.connector = new FakeModuleConnector(time);
         this.auditFile = auditFile;
@@ -46,7 +52,8 @@ public final class TestScanServices implements AutoCloseable {
             memory = null;
             audit = AuditLog.append(auditFile, time, demo);
         }
-        this.service = new DefaultScanService(connector, time, limits, audit, demo);
+        this.service = new DefaultScanService(connector, time, limits, audit, demo, labels,
+                java.util.Optional.ofNullable(recordings));
     }
 
     /** Auto-advancing fake clock, default limits, in-memory audit log. */
@@ -61,6 +68,16 @@ public final class TestScanServices implements AutoCloseable {
     /** With the audit log appended to {@code auditFile}. */
     public static TestScanServices create(FakeTimeSource time, ScanLimits limits, Path auditFile) {
         return new TestScanServices(time, limits, auditFile, false);
+    }
+
+    /**
+     * With label files given as text by file name (made-up labels, see {@code LabelLibrary.ofTexts}) and
+     * recordings written to {@code recordings} (null: none).
+     */
+    public static TestScanServices withLabels(FakeTimeSource time, ScanLimits limits, Map<String, String> labelFiles,
+            Path recordings) {
+        return new TestScanServices(time, limits, null, false,
+                io.github.samsanjaysatish.macvagdiag.labels.LabelLibrary.ofTexts(labelFiles), recordings);
     }
 
     public ScanService service() {

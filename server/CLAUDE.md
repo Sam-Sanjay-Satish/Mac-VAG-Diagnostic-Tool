@@ -23,6 +23,7 @@ Then open http://localhost:8080. Other flags go in `--args` the same way (`--ser
 | `macvagdiag.port` | empty | CANable serial port. Empty: auto-detect (`/dev/cu.usbmodem*` with USB ID `16D0:117E`), re-checked every 2 s on calls until one is plugged in. Other usbmodem devices are never picked automatically. |
 | `macvagdiag.audit-log` | empty | Audit log path. Empty: `~/Library/Application Support/macvagdiag/audit.jsonl` (scan's default). |
 | `macvagdiag.bits-per-second` | `0` | Diagnostic CAN speed; 0 = 500000 (confirmed on the car 2026-11-13). |
+| `macvagdiag.labels` | empty | Label-file folders for v2 live-data names and specs, comma-separated, searched in order (e.g. `local/label-files-decoded`). Empty: no labels. Demo mode always uses scan's bundled made-up labels. Added 2026-11-19. |
 | `server.address` | `127.0.0.1` | Must be loopback: startup fails otherwise (`LoopbackOnlyConfiguration`). |
 | `server.port` | `8080` | |
 

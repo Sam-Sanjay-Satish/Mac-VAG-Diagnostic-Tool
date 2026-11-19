@@ -20,9 +20,10 @@ import org.slf4j.LoggerFactory;
  * {@code RequestGuardTest} pins its exact contents so any change fails a test until it is reviewed.
  *
  * <p>Approved by the user on 2026-10-22, provisional until checked against the sniffing capture. KWP
- * {@code 21 xx} (measuring blocks) is deliberately excluded from v1. Extended on 2026-11-15, with the user's
- * approval, by the KWP {@code 18} / {@code 12} long forms and KWP {@code 22} that VCDS used in the 2026-11-13
- * capture.
+ * {@code 21 xx} (measuring blocks) was excluded from v1. Extended on 2026-11-15, with the user's approval, by the
+ * KWP {@code 18} / {@code 12} long forms and KWP {@code 22} that VCDS used in the 2026-11-13 capture. Extended on
+ * 2026-11-19, with the user's approval, by KWP {@code 21 01}..{@code 21 FF} (measuring blocks, v2 live data);
+ * group {@code 21 00} stays refused.
  */
 public final class RequestGuard {
 
@@ -32,6 +33,7 @@ public final class RequestGuard {
     static final int SID_START_SESSION = 0x10;
     static final int SID_KWP_READ_FREEZE_FRAME = 0x12;
     static final int SID_KWP_READ_DTC_BY_STATUS = 0x18;
+    static final int SID_KWP_READ_DATA_BY_LOCAL_ID = 0x21;
     static final int SID_UDS_READ_DTC_INFO = 0x19;
     static final int SID_KWP_READ_ECU_IDENTIFICATION = 0x1A;
     static final int SID_UDS_READ_DATA_BY_ID = 0x22;
@@ -42,13 +44,18 @@ public final class RequestGuard {
      *
      * @param protocol the channel protocol it applies to
      * @param prefix the bytes that must match exactly: service ID, plus sub-function where the service has one
-     * @param length the exact total payload length; bytes after the prefix may have any value
+     * @param length the exact total payload length; bytes after the prefix may have any value (see {@code minParameter})
+     * @param minParameter the lowest value allowed for the first byte after the prefix ({@code 0} = any). KWP
+     *        {@code 21} uses {@code 01} so that measuring-block group {@code 00} (raw values) stays refused.
      * @param description what it is, for the allowlist table and logs
      */
-    record Entry(ApplicationProtocol protocol, byte[] prefix, int length, String description) {
+    record Entry(ApplicationProtocol protocol, byte[] prefix, int length, int minParameter, String description) {
 
         Entry {
             prefix = prefix.clone();
+            if (minParameter < 0 || minParameter > 0xFF || (minParameter > 0 && length <= prefix.length)) {
+                throw new IllegalArgumentException("bad minParameter " + minParameter);
+            }
         }
 
         @Override
@@ -65,14 +72,18 @@ public final class RequestGuard {
                     return false;
                 }
             }
-            return true;
+            return minParameter == 0 || Byte.toUnsignedInt(payload[prefix.length]) >= minParameter;
         }
 
-        /** Bus-style pattern, e.g. {@code 19 04 xx xx xx xx}. */
+        /** Bus-style pattern, e.g. {@code 19 04 xx xx xx xx}, or {@code 21 01..FF} for a lower bound. */
         String pattern() {
             StringBuilder sb = new StringBuilder(Hex.format(prefix));
             for (int i = prefix.length; i < length; i++) {
-                sb.append(" xx");
+                if (i == prefix.length && minParameter > 0) {
+                    sb.append(String.format(" %02X..FF", minParameter));
+                } else {
+                    sb.append(" xx");
+                }
             }
             return sb.toString();
         }
@@ -80,12 +91,12 @@ public final class RequestGuard {
         @Override
         public boolean equals(Object o) {
             return o instanceof Entry other && protocol == other.protocol && length == other.length
-                    && java.util.Arrays.equals(prefix, other.prefix) && description.equals(other.description);
+                    && minParameter == other.minParameter && java.util.Arrays.equals(prefix, other.prefix) && description.equals(other.description);
         }
 
         @Override
         public int hashCode() {
-            return java.util.Objects.hash(protocol, java.util.Arrays.hashCode(prefix), length, description);
+            return java.util.Objects.hash(protocol, java.util.Arrays.hashCode(prefix), length, minParameter, description);
         }
 
         @Override
@@ -95,12 +106,18 @@ public final class RequestGuard {
     }
 
     private static Entry entry(ApplicationProtocol protocol, String prefixHex, int length, String description) {
-        return new Entry(protocol, Hex.parse(prefixHex), length, description);
+        return new Entry(protocol, Hex.parse(prefixHex), length, 0, description);
+    }
+
+    private static Entry entry(ApplicationProtocol protocol, String prefixHex, int length, int minParameter,
+            String description) {
+        return new Entry(protocol, Hex.parse(prefixHex), length, minParameter, description);
     }
 
     /**
-     * THE allowlist. Approved by the user on 2026-10-22 (minus KWP {@code 21 xx}) and extended on 2026-11-15
-     * after the sniffing capture. Do not change without the user's explicit approval.
+     * THE allowlist. Approved by the user on 2026-10-22 (minus KWP {@code 21 xx}), extended on 2026-11-15 after
+     * the sniffing capture and on 2026-11-19 by KWP {@code 21 01..FF}. Do not change without the user's explicit
+     * approval.
      *
      * <p>How much of each payload is checked:
      * <ul>
@@ -122,6 +139,10 @@ public final class RequestGuard {
      *   <li>{@code 22} (UDS, and KWP2000 for the TP 2.0 modules that answer UDS-style DIDs, e.g. ABS, BCM,
      *       gateway): exactly one 2-byte data identifier, any value. Reading a DID has no side effects; several
      *       DIDs in one request are refused (VCDS sends a 13-byte six-DID form; we don't need it).</li>
+     *   <li>KWP {@code 21 gg} (read data by local identifier = measuring block group {@code gg}, approved by the
+     *       user on 2026-11-19): exactly one group byte, {@code 01}..{@code FF}. Reading a group has no side
+     *       effects. Group {@code 00} is refused (user's decision): it returns undocumented raw values. Basic
+     *       settings ({@code 28}, {@code 04}) stay off the list.</li>
      * </ul>
      */
     static final List<Entry> ALLOWLIST = List.of(
@@ -133,6 +154,7 @@ public final class RequestGuard {
             entry(ApplicationProtocol.KWP2000, "12", 2, "read freeze frame data"),
             entry(ApplicationProtocol.KWP2000, "12 00 04", 5, "read freeze frame 00 by DTC"),
             entry(ApplicationProtocol.KWP2000, "22", 3, "read data by identifier over TP 2.0 (one DID)"),
+            entry(ApplicationProtocol.KWP2000, "21", 2, 0x01, "read measuring block group 01..FF"),
             entry(ApplicationProtocol.KWP2000, "3E", 1, "tester present"),
             entry(ApplicationProtocol.UDS, "10 01", 2, "default session"),
             entry(ApplicationProtocol.UDS, "10 03", 2, "extended diagnostic session"),

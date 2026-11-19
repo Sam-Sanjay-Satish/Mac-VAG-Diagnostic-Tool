@@ -9,7 +9,8 @@ An open-source, read-only VW/VAG diagnostic tool in Java that runs on macOS and 
 - **AI access:** an MCP server lets AI agents read data and decide on further tests. Read-only, no exceptions.
 - **Later:** live measuring blocks (v2), labels/descriptions, `.app` packaging.
 
-## Current state (2026-11-18)
+## Current state (2026-11-19)
+- **v2 live data built (2026-11-19), not yet run on the car.** `list_available_data` → `read_live_data` / `record_live_data` over MCP, end to end on the demo car and on fakes; `./gradlew build` green. Allowlist + KWP `21 01..FF` (approved), new `labels` project (VCDS `.lbl` lookup, privacy filter), `diag.readMeasuringBlock`, scan's catalog / reads / recordings with their own budgets, three MCP tools, `macvagdiag.labels` setting in `server`. Details: "v2 live data through MCP" below and each layer's guide. **Next for v2:** a hardware run of `21 xx` on the engine (no hardware test exists for it yet; ask before transmitting), and the manual MCP check with a real AI client against demo mode.
 - **All layers built and corrected from the 2026-11-13 capture.** The v1 acceptance test passes on the replay: `autoScan()` against the real capture matches the VCDS Auto-Scan log (16 modules and statuses, all 19 fault codes with status wording, all 14 KWP freeze frames, 13 part numbers, and the header mileage 366280 km / 227595 mi). See `scan/CLAUDE.md` (`AutoScanReplayTest`) for exactly what is compared and what isn't.
 - **2026-11-17 (user's decisions):** transport's CAN ID set narrowed to the IDs the car uses (TP 2.0 tx exactly `740 760 790 7A8 32E 338 33C`; `7E0/7E8` and `7E1/7E9` removed). **The VIN is never read or shown**: `1A 90` and `22 F1 90` are no longer sent, and the VIN fields, VIN masking, the masked report download and MCP's `maskVin` option are gone. **Mileage added:** 17's odometer `22 22 03` (already allowlisted, VCDS sends it too) in the Auto-Scan, `vehicleInfo`, the report header, the JSON and MCP's `get_vehicle_info`. Every request we send is now one VCDS also sent on the capture.
 - **CI (GitHub Actions) was red from `aa3c5de` (2026-11-16) to `3a67426`:** the two VIN-masked capture fixtures were never committed (see "Car data and privacy"). Fixed 2026-11-17; a fresh clone builds.
@@ -19,7 +20,7 @@ An open-source, read-only VW/VAG diagnostic tool in Java that runs on macOS and 
 - **Next, in order:**
   1. Manual MCP check with a real AI client against demo mode (`mcp/CLAUDE.md`).
   2. Small items from the car runs: the `read failed` / `could not send close command` errors when the app shuts down after a scan (after the scan finished; likely the port closing under the reader thread; not investigated, harmless so far); 04 Steering Angle shows only the gateway status, as before (VCDS shows no details for it either).
-  3. v2: measuring blocks (see the v2 line below); KWP `21 xx` needs the user's approval for the allowlist.
+  3. ~~v2: measuring blocks~~: built 2026-11-19 (see the top of this list); run it on the car next.
 - **Running hardware tests:** never `./gradlew hardwareTest` for everything, and never mix the two kinds in one command: `Tp20HardwareTest` and `HardwareSmokeTest` transmit in `NORMAL` mode and must never run while VCDS is connected, while the listen-only receive tests need VCDS talking. Since 2026-11-18 the `hardwareTest` tasks share a Gradle build service with one slot (`buildSrc/.../CanAdapterLock.kt`), so two named in one command run one after the other instead of fighting over the serial port (on 2026-11-17 `org.gradle.parallel` ran `:can-core` and `:tools` at once and one couldn't open the port). They also print each test and its output live. With VCDS running: `MACVAGDIAG_EXPECT_FRAMES=1 ./gradlew :can-core:hardwareTest :tools:hardwareTest` (start the Auto-Scan when "start a VCDS Auto-Scan now" appears); VCDS unplugged: `./gradlew :transport:hardwareTest`, then `./gradlew :server:hardwareTest`.
 - **v2 sniffing session 2026-11-18 (listen-only):** measuring blocks 007/099/100/001/011/033 and OBD-II mode 01 captured with matching VCDS CSVs. Layout and formulas confirmed (`diag/CLAUDE.md`, "Measuring blocks"); the engine reports **no oil temperature** (group 007 field 2 empty, no PID `5C`). Session record in `tools/CLAUDE.md`. Next for oil temp: 17-Instruments measuring blocks.
 - **Known gaps in the output (not blocking v1):** no VIN (by the user's choice, never read); no fault-code descriptions (raw codes; see "Label files"); UDS freeze frames kept raw; KWP freeze-frame dates not decodable on this car; ignition/engine state `UNKNOWN`; a timed-out `12 00 04` retried after the module answered returns the next stored record.
@@ -50,7 +51,8 @@ Gradle multi-project (Kotlin DSL), built bottom-up. Lower layers never depend on
 | `tools` | Listen-only CAN logger for sniffing sessions |
 | `transport` | VW TP 2.0 and ISO-TP; read-only request guard |
 | `diag` | KWP2000 / UDS services: DTC reading, status byte, freeze frame |
-| `scan` | Module discovery, Auto-Scan, sessions, Tester Present, rate limiting, request queue |
+| `labels` | Label files (VCDS `.lbl`): lookup by part number and address, measuring-block names and specs, privacy filter. Plain file parsing, no bus |
+| `scan` | Module discovery, Auto-Scan, live data, sessions, Tester Present, rate limiting, request queue |
 | `server` | Spring Boot: REST, local web page (plain HTML/JS), report export |
 | `mcp` | MCP server (official MCP Java SDK), thin front end over `scan` |
 
@@ -81,11 +83,12 @@ Each project has its own `CLAUDE.md` with everything specific to that layer: pur
 - [`tools/CLAUDE.md`](tools/CLAUDE.md): listen-only logger, sniffing-session checklist
 - [`transport/CLAUDE.md`](transport/CLAUDE.md): TP 2.0, ISO-TP, **read-only request guard**
 - [`diag/CLAUDE.md`](diag/CLAUDE.md): KWP2000 / UDS services, DTC and freeze-frame decoding
+- [`labels/CLAUDE.md`](labels/CLAUDE.md): label-file lookup, measuring-block names and specs, privacy filter
 - [`scan/CLAUDE.md`](scan/CLAUDE.md): discovery, Auto-Scan, sessions, rate limits, audit log, VCDS comparison
 - [`server/CLAUDE.md`](server/CLAUDE.md): Spring Boot app, REST, web page, demo mode
 - [`mcp/CLAUDE.md`](mcp/CLAUDE.md): MCP tools for AI agents, validation, output rules
 
-## Label files (background for the labels/descriptions work, not built yet)
+## Label files (measuring-block lookup built in `labels`, 2026-11-19; fault-code descriptions not built)
 **Our label set:** 3,176 files (`.lbl`, `.clb`, `.crd`) in `local/label-files/` (git-ignored), plus a plain-text copy in `local/label-files-decoded/` (`X.clb` as `X.lbl`, `X.crd` as `X.crd.txt`). Work from the decoded copy; leave the `.clb`/`.crd` originals untouched. The files use the VCDS label format and can fully replace VCDS labels, so build the lookup against that format.
 
 Read from `local/`, never commit the contents. Whether the set may be **committed or redistributed** in this MIT repo is not settled, so keep it out of git and out of committed fixtures until then.
@@ -130,6 +133,12 @@ The rest of this section is how VCDS does lookup, from Ross-Tech's documentation
 - Don't commit or push unless the user asks. When asked, commit directly on `main` (no feature branches), with a lowercase one-line summary like the existing history and no co-author or tool trailers. The remote is `origin` → GitHub `Sam-Sanjay-Satish/Mac-VAG-Diagnostic-Tool`.
 
 ## Open questions (don't decide these silently)
+- **v2 live data through MCP: decided 2026-11-19 (user), built the same day** (not yet run on the car). The agent sees a catalog of readable values per module (from the label files), picks some, and we read them and return the values. Value IDs are `01:007.3` (module : group . field). Without a label file the groups are found by asking the module, 40 per call. Recordings: 1–120 s, at least 250 ms from each answer to the next request, own budget (one request per 250 ms + 10, at most 490), CSV next to the audit log.
+  - **Allowlist addition approved and added:** KWP `21 01`..`21 FF` (measuring blocks) on TP 2.0 channels. **Not** group `21 00`. Basic settings (`28`, `04`) stay forbidden, and label lines for basic settings, adaptation and coding (`B003,…` etc.) never go in the catalog.
+  - **UDS live data:** a per-module DID allowlist just for live reads, separate from identification; `F1 90` never. Deferred until KWP measuring blocks work.
+  - **Privacy:** groups/DIDs whose label names say VIN or immobilizer ID are blocked, and as a backstop any VIN-shaped value is dropped from results.
+  - **OBD-II mode 01:** not added; `7E0/7E8` stay off. The engine's measuring groups are enough.
+  - **Label text sent to the AI (decided 2026-11-19):** field names and spec ranges (e.g. `Engine Speed (G28)`, `Specification (Idle): 760...940 U/min`), plus the matched label file name. Nothing else from the label files: no help text, no basic-settings/adaptation/coding lines. Label files themselves still stay out of git and out of fixtures; tests and demo mode use made-up labels.
 - Fault-code descriptions and labels (not being worked on yet). Our label set lives in `local/label-files/` for local use. Open: whether it can be committed or redistributed in an MIT repo, and where fault-code descriptions come from. See "Label files" above.
 - Final project name.
 - **Waiting on the user:** whether demo mode ships the real capture.

@@ -34,10 +34,10 @@ class FakeDiagnosticChannelTest {
     }
 
     @Test
-    @DisplayName("applies the real guard: KWP 21 01 and UDS 27 01 throw, and are not recorded")
+    @DisplayName("applies the real guard: KWP 21 00 and UDS 27 01 throw, and are not recorded")
     void appliesTheGuard() {
-        FakeDiagnosticChannel kwp = FakeDiagnosticChannel.kwp().on("21 01", "61 01");
-        assertThrows(ForbiddenRequestException.class, () -> kwp.request(Hex.parse("21 01"), TIMEOUT));
+        FakeDiagnosticChannel kwp = FakeDiagnosticChannel.kwp().on("21 00", "61 00");
+        assertThrows(ForbiddenRequestException.class, () -> kwp.request(Hex.parse("21 00"), TIMEOUT));
         FakeDiagnosticChannel uds = FakeDiagnosticChannel.uds();
         assertThrows(ForbiddenRequestException.class, () -> uds.request(Hex.parse("27 01"), TIMEOUT));
         assertThrows(ForbiddenRequestException.class, () -> uds.request(Hex.parse("10 89"), TIMEOUT),

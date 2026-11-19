@@ -2,7 +2,7 @@
 
 Layer guide. Read the root `CLAUDE.md` first: its safety and testing rules apply here too.
 
-**Status:** v1 built (2026-10-23): the four read-only tools over Streamable HTTP, hosted in-process by `server`. 109 tests, `./gradlew :mcp:build` green. 2026-11-16: module enum follows scan's new 16-module table; `list_modules` has `gatewayStatus`, `NOT_INSTALLED` and `counts.notInstalled`; `read_fault_codes` status may be `GATEWAY_STATUS_ONLY`. `server` mounts the endpoint at `/mcp` (see `server/CLAUDE.md` for the `claude mcp add` command). Pending: the manual check with a real AI client against demo mode. **Package:** `io.github.samsanjaysatish.macvagdiag.mcp`
+**Status:** v2 live-data tools built 2026-11-19 (`list_available_data`, `read_live_data`, `record_live_data`; 141 tests). v1 built (2026-10-23): the four read-only tools over Streamable HTTP, hosted in-process by `server`. 109 tests, `./gradlew :mcp:build` green. 2026-11-16: module enum follows scan's new 16-module table; `list_modules` has `gatewayStatus`, `NOT_INSTALLED` and `counts.notInstalled`; `read_fault_codes` status may be `GATEWAY_STATUS_ONLY`. `server` mounts the endpoint at `/mcp` (see `server/CLAUDE.md` for the `claude mcp add` command). Pending: the manual check with a real AI client against demo mode. **Package:** `io.github.samsanjaysatish.macvagdiag.mcp`
 **Depends on:** `scan` (`api`) + the official MCP Java SDK 2.1.0 (`libs.mcp.bom` / `libs.mcp`: mcp-core + mcp-json-jackson3, MIT; approved 2026-10-22) + `jakarta.servlet-api` as `compileOnly` (Tomcat provides it at runtime). No Spring here: only `server` knows Spring. **Used by:** `server`.
 
 ## Purpose
@@ -39,9 +39,9 @@ mcp.close();                           // on shutdown, before scanService.close(
 | `list_modules` | Known modules and whether each responds | v1 ✔ |
 | `read_fault_codes(module)` | Codes, status, freeze frame as structured JSON | v1 ✔ |
 | `get_vehicle_info` | ECU part numbers, software versions, mileage (17's odometer, km); no VIN | v1 ✔ |
-| `list_available_data(module)` | Which live values can be read | v2 |
-| `read_live_data(module, values)` | One snapshot of chosen values | v2 |
-| `record_live_data(module, values, seconds)` | Record over time; return a summary + file path for the full data | v2 |
+| `list_available_data(module, groups?, query?)` | Which live values can be read: group titles by default; with `groups` or `query`, the fields with IDs, names, specs | v2 ✔ |
+| `read_live_data(values)` | One snapshot of chosen values (IDs carry the module) | v2 ✔ |
+| `record_live_data(values, seconds)` | Record 1–120 s; summary per value + CSV path | v2 ✔ |
 
 All four are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`. Server `instructions` tell the model it's read-only, to start with `get_session_status`, to follow refusal messages, that physical conditions need the human, that there are no fault-code descriptions, and what `demo: true` means.
 
@@ -99,7 +99,17 @@ Tool results with `isError: true` and one text message (MCP tool-execution error
 - [x] Strict argument validation before scan; error mapping; audit of every call, including rejected and unknown-tool calls.
 - [x] No VIN anywhere (2026-11-17; replaced masking).
 - [x] Host / Origin validation inside mcp (DNS rebinding), body size bound.
-- [ ] v2 tools (live data). Not started.
+- [x] v2 tools (live data), built 2026-11-19. Decisions in the root `CLAUDE.md` ("v2 live data through MCP"). As built:
+  - Arguments: `module` as for `read_fault_codes`; `groups` 1–20 whole numbers 1..255; `query` 1–40 characters (case-insensitive, titles and field names; a title hit lists the whole group); `values` 1–16 strings of the exact form `01:007.3`; `seconds` whole number 1..120. Checked here first (exact keys, types, ranges, ID form, then the schema); scan then checks the IDs against the module's catalog and throws `InvalidLiveValueException`, which is mapped to the same "invalid arguments: ... Nothing was sent to the car." error and audited `rejected`.
+  - Output: `list_available_data` {source, partNumber, labelSource, labelTrail, probedThrough, withheldGroups, filter, groupCount, fieldCount, groups [{group, title, fieldCount, fields|null}], truncated (more than 120 fields), notes, limitHit, requests, timestamp, hint}; field {id, name, quantity, unit, specs, timestamp}. `read_live_data` {status, labelSource, values [{id, name, quantity, value (number|null), text, unit, raw, state, problem, specs, timestamp}], ...}. `record_live_data` {recordingId, status, rounds, requestedSeconds, recordedSeconds, file, series [{id, ..., samples, decoded, min, max, average, first, last, minAtSeconds, maxAtSeconds, events}], ...}. Numbers are plain JSON numbers (whole → int, else double), so the text copy equals the structured result. Empty strings become `null`.
+  - Server instructions mention the live-data flow; tool descriptions say to ask the user to set up conditions (idle, warm, rpm) first.
+  - Tests: `LiveDataToolsTest` (29 bad-argument cases with scan never called, output shapes, refusal mapping), `RealScanServiceTest.demoCarThroughEveryTool` (catalog, query, read, record with the CSV on disk, withheld group refused, on the demo stack), `ToolListTest` (7 tools pinned; only the listed argument names; no argument named request/raw/bytes/hex/service).
+  - Originally planned shape (kept for reference):
+  - Value IDs `<module>:<group>.<field>`, e.g. `01:007.3`. Scan requests the fewest groups that cover the chosen fields (one `21 gg` gives all four fields).
+  - `list_available_data(module, query?)`: group titles by default; field names, spec ranges and the label file name on request or for a search. Never basic-settings/adaptation/coding lines.
+  - `read_live_data(module, values[])`: value, unit (from the formula byte, so it works without labels), name, spec, raw triplet. Capped per call (e.g. 4 groups).
+  - `record_live_data(module, values, seconds)`: 1–120 s, min/max/avg + events, full CSV in a file.
+  - Modules without a label file: a one-time, rate-limited probe of the groups that answer, cached per part number, so value IDs are always known ones.
 
 ## Tests (all without hardware)
 - [x] `ToolHandlersTest`: each tool against `FakeScanService` / `SampleScanData`: JSON shape, units, timestamps, raw IDs, status byte, failure type, freeze-frame records, mileage (and "not read"), no `vin` key anywhere, audit records.

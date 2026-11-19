@@ -172,6 +172,25 @@ final class AdapterWaitingScanService implements ScanService {
     }
 
     @Override
+    public io.github.samsanjaysatish.macvagdiag.scan.LiveDataCatalog liveDataCatalog(Caller caller,
+            io.github.samsanjaysatish.macvagdiag.scan.ModuleAddress module) throws InterruptedException {
+        return require().liveDataCatalog(caller, module);
+    }
+
+    @Override
+    public io.github.samsanjaysatish.macvagdiag.scan.LiveDataSnapshot readLiveData(Caller caller,
+            java.util.List<io.github.samsanjaysatish.macvagdiag.scan.LiveValueId> values) throws InterruptedException {
+        return require().readLiveData(caller, values);
+    }
+
+    @Override
+    public io.github.samsanjaysatish.macvagdiag.scan.LiveDataRecording recordLiveData(Caller caller,
+            java.util.List<io.github.samsanjaysatish.macvagdiag.scan.LiveValueId> values, java.time.Duration duration)
+            throws InterruptedException {
+        return require().recordLiveData(caller, values, duration);
+    }
+
+    @Override
     public AutoScanJob startAutoScan(Caller caller, ScanProgressListener listener) {
         return require().startAutoScan(caller, listener);
     }

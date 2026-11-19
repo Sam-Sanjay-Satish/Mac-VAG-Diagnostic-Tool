@@ -31,11 +31,12 @@ final class RequestBudget {
             return;
         }
         int used = ctx.requests(module);
-        if (used + cost > limits.maxRequestsPerModulePerScan()) {
+        int max = ctx.moduleBudget(limits);
+        if (used + cost > max) {
             throw new LimitReachedException(new LimitHit(Limit.REQUESTS_PER_MODULE_PER_SCAN, Duration.ZERO,
                     String.format("request budget used up: at most %d requests to module %s in one scan "
                             + "(%d used); the rest of this module was not read. A new scan can read it",
-                            limits.maxRequestsPerModulePerScan(), module.hex(), used)));
+                            max, module.hex(), used)));
         }
         Optional<LimitHit> hit = checkWindow(cost);
         if (hit.isPresent()) {

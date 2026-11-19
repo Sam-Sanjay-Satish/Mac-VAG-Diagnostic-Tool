@@ -36,6 +36,7 @@ class RequestGuardTest {
                 "KWP2000 12 xx (read freeze frame data)",
                 "KWP2000 12 00 04 xx xx (read freeze frame 00 by DTC)",
                 "KWP2000 22 xx xx (read data by identifier over TP 2.0 (one DID))",
+                "KWP2000 21 01..FF (read measuring block group 01..FF)",
                 "KWP2000 3E (tester present)",
                 "UDS 10 01 (default session)",
                 "UDS 10 03 (extended diagnostic session)",
@@ -50,11 +51,17 @@ class RequestGuardTest {
     }
 
     @Test
-    @DisplayName("KWP 21 xx (measuring blocks) is deliberately not on the v1 allowlist")
-    void measuringBlocksExcluded() {
-        for (int block = 0; block <= 0xFF; block++) {
-            assertFalse(RequestGuard.isAllowed(KWP2000, new byte[] {0x21, (byte) block}), "21 " + block);
+    @DisplayName("KWP 21 gg (measuring blocks, approved 2026-11-19): 21 01..21 FF only, never 21 00, never on UDS")
+    void measuringBlocks() {
+        assertFalse(RequestGuard.isAllowed(KWP2000, new byte[] {0x21, 0x00}), "21 00");
+        for (int group = 1; group <= 0xFF; group++) {
+            assertTrue(RequestGuard.isAllowed(KWP2000, new byte[] {0x21, (byte) group}), "21 " + group);
         }
+        for (int group = 0; group <= 0xFF; group++) {
+            assertFalse(RequestGuard.isAllowed(UDS, new byte[] {0x21, (byte) group}), "UDS 21 " + group);
+            assertFalse(RequestGuard.isAllowed(KWP2000, new byte[] {0x21, (byte) group, 0x00}), "21 gg 00");
+        }
+        assertFalse(RequestGuard.isAllowed(KWP2000, new byte[] {0x21}), "21 alone");
     }
 
     @Test
@@ -86,6 +93,8 @@ class RequestGuardTest {
             "KWP2000, 18 00 FF 00", "KWP2000, 18 02 FF 00",
             "KWP2000, 12 00 04 2B A6", "KWP2000, 12 00 04 00 87", "KWP2000, 12 00 04 00 00", "KWP2000, 12 00 04 FF FF",
             "KWP2000, 22 04 A1", "KWP2000, 22 F1 87", "KWP2000, 22 00 00", "KWP2000, 22 FF FF",
+            // Measuring blocks, approved 2026-11-19.
+            "KWP2000, 21 01", "KWP2000, 21 07", "KWP2000, 21 0B", "KWP2000, 21 FF",
             "UDS, 10 01", "UDS, 10 03", "UDS, 3E 00", "UDS, 3E 80",
             "UDS, 19 01 FF", "UDS, 19 02 FF", "UDS, 19 02 08", "UDS, 19 04 00 04 01 FF", "UDS, 19 04 12 34 56 01",
             "UDS, 19 06 00 04 01 FF", "UDS, 22 F1 90", "UDS, 22 F1 87", "UDS, 22 00 00", "UDS, 22 FF FF"})
@@ -96,7 +105,9 @@ class RequestGuardTest {
 
     @ParameterizedTest(name = "rejects {0} {1}: {2}")
     @CsvSource({
-            "KWP2000, 21 01, service 21 is not on the read-only allowlist for KWP2000",
+            "KWP2000, 21 00, only 21 01..FF allowed for service 21",
+            "KWP2000, 21 07 00, only 21 01..FF allowed for service 21",
+            "UDS, 21 01, service 21 is not on the read-only allowlist for UDS",
             "UDS, 27 01, service 27 is not on the read-only allowlist for UDS",
             "UDS, 10 02, only 10 01 / 10 03 allowed for service 10",
             "KWP2000, 10 85, only 10 89 allowed for service 10",
@@ -153,6 +164,7 @@ class RequestGuardTest {
                     || (sid == 0x12 && n == 2)
                     || (sid == 0x12 && sub == 0x00 && n == 5 && b[2] == 0x04)
                     || (sid == 0x22 && n == 3)
+                    || (sid == 0x21 && sub != 0x00 && n == 2)
                     || (sid == 0x3E && n == 1);
             case UDS -> (sid == 0x10 && (sub == 0x01 || sub == 0x03) && n == 2)
                     || (sid == 0x3E && (sub == 0x00 || sub == 0x80) && n == 2)
@@ -185,9 +197,9 @@ class RequestGuardTest {
                 }
             }
         }
-        // KWP: 10 89 (1) + 1A/18/12 xx (3 x 256) + 22 xx (256) + 3E (1); UDS: 10 01/03 (2) + 3E 00/80 (2)
+        // KWP: 10 89 (1) + 1A/18/12 xx (3 x 256) + 22 xx (256) + 21 01..FF (255) + 3E (1); UDS: 10 01/03 (2) + 3E 00/80 (2)
         // + 19 01/02/04/06 (4) + 22 xx (256). The filler 5A never forms 18 0x FF 00 or 12 00 04: see the next test.
-        assertEquals(1 + 3 * 256 + 256 + 1 + 2 + 2 + 4 + 256, allowed);
+        assertEquals(1 + 3 * 256 + 256 + 255 + 1 + 2 + 2 + 4 + 256, allowed);
     }
 
     @Test

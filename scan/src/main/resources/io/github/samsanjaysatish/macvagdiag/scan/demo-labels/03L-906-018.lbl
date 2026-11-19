@@ -1,0 +1,22 @@
+; DEMO LABELS, MADE UP for macvagdiag's demo car (DemoCar, engine 03L 906 018 XX).
+; Written for demo mode in the VCDS .lbl text format. Not copied from any real label file.
+001,0,Demo Basic Values
+001,1,Engine Speed,(demo),Range: 0...5000 /min\nSpecification (Idle): 780...920 /min
+001,2,Injected Quantity,(demo),Range: 0.0...60.0 mg/str
+001,3,Rail Pressure,(demo),Range: 0.0...2000.0 bar
+001,4,Coolant,Temperature (demo),Range: -40.0...+130.0 °C\nSpecification (Warm): 80.0...105.0 °C
+007,0,Demo Temperatures
+007,1,Fuel Temperature,(demo),Range: -20.0...+100.0 °C
+007,2,Oil Temperature,(demo; not measured)
+007,3,Intake Air,Temperature (demo),Range: -20.0...+80.0 °C
+007,4,Coolant,Temperature (demo),Range: -40.0...+130.0 °C
+011,0,Demo Boost Pressure
+011,1,Engine Speed,(demo),Range: 0...5000 /min
+011,2,Boost Pressure,(specified),Range: 0.0...2600.0 mbar
+011,3,Boost Pressure,(actual),Range: 0.0...2600.0 mbar
+011,4,Boost Control,Duty Cycle,Range: 0.0...100.0 %
+081,0,Demo Identification
+081,1,Vehicle Ident.,Number (VIN)
+B011,0,Demo Basic Setting (never offered)
+B011,1,Demo Basic Setting Field
+A050,0,Demo Adaptation (never offered)

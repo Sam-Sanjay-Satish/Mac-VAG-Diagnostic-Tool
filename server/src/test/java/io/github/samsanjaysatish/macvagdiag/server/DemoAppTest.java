@@ -262,7 +262,7 @@ class DemoAppTest {
         }
         HttpResponse<String> response = send(r);
         String payload = response.body().strip();
-        if (payload.contains("data:")) {
+        if (payload.lines().anyMatch(l -> l.startsWith("data:"))) { // SSE (plain JSON may contain "data:" in text)
             payload = payload.lines().filter(l -> l.startsWith("data:")).reduce((a, b) -> b).orElseThrow()
                     .substring("data:".length()).strip();
         }
@@ -289,8 +289,8 @@ class DemoAppTest {
                 {"jsonrpc":"2.0","id":2,"method":"tools/list"}""");
         java.util.Set<String> tools = new java.util.TreeSet<>();
         list.message().get("result").get("tools").forEach(t -> tools.add(t.get("name").asString()));
-        assertEquals(java.util.Set.of("get_session_status", "get_vehicle_info", "list_modules", "read_fault_codes"),
-                tools);
+        assertEquals(java.util.Set.of("get_session_status", "get_vehicle_info", "list_modules", "read_fault_codes",
+                "list_available_data", "read_live_data", "record_live_data"), tools);
 
         McpReply call = mcp(session, """
                 {"jsonrpc":"2.0","id":3,"method":"tools/call",
