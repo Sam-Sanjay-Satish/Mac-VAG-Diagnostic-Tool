@@ -56,7 +56,7 @@ All four are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempote
   - `read_fault_codes`: `demo`, `module {address, name}`, `status` (scan's `ModuleStatus`, incl. `GATEWAY_STATUS_ONLY`), `statusDescription`, `protocol`, `link`, `faultCount`, `faultListComplete`, `faults[] {id (display code, e.g. P0401-00), code, protocol, record, status (byte), statusText, statusFlags, failureType (byte|null), obdCode, freezeFrame {availability, message, records[raw], fields[value], responses, notes}, unit, timestamp}`, `identification` (or null), `notes`, `limitHit {limit, description, retryAfterSeconds, message}` (or null), `requests`, `startedAt`, `timestamp`.
   - `get_vehicle_info`: `demo`, `mileage` (value), `modules[] {address, name, reachability, protocol, link, identification {protocol, values[], raw[], notes}|null, notes, timestamp}`, `timestamp`.
 - Every success also carries the same JSON as one text content block (for clients that only read text).
-- **Interpretation of "every value has id, unit, timestamp":** every object with an `id` (anything read from the car) has a `unit` key (`null`: unknown or none; nothing has a known unit yet) and a `timestamp` (ISO-8601 UTC, from scan's `checkedAt` / `readAt` / `finishedAt`). Structural fields (module address/name, status enums, counts) sit beside them. `ToolTesting.assertOutputRules` checks this on every result.
+- **Interpretation of "every value has id, unit, timestamp":** every object with an `id` (anything read from the car) has a `unit` key (`null`: unknown or none; known units so far: mileage `km` and live values, whose unit comes from the measuring-value formula byte) and a `timestamp` (ISO-8601 UTC, from scan's `checkedAt` / `readAt` / `finishedAt`). Structural fields (module address/name, status enums, counts) sit beside them. `ToolTesting.assertOutputRules` checks this on every result.
 
 ## Output rules
 - Always structured JSON, with an output schema per tool. Every value has an ID/name, a unit (or `null` if unknown) and a timestamp. Never bare numbers.
@@ -126,7 +126,7 @@ Tool results with `isError: true` and one text message (MCP tool-execution error
 - `server` mounts the servlet with async support and keep its own Host/Origin/loopback checks in front. Real HTTP end to end is tested in `server`.
 - Spring Boot's BOM in `server` may pick different Jackson 3 / Reactor versions than the SDK's (jackson 3.1.4, reactor-core 3.7.0); watch for runtime mismatches there.
 - The SDK's session keep-alive pings and idle-session sweep run on its defaults (30 min each).
-- `unit` is `null` everywhere for now: nothing is decoded with a unit yet (v2 measuring blocks will add units).
+- `unit`: live values (v2) carry the formula's unit (`/min`, `°C`, `mbar`, `V`, ...) and mileage carries `km`; freeze-frame fields and identification still have `null`.
 
 ## Done when
 An AI client connected to demo mode can list modules, read fault codes and get vehicle info. All validation and tool-list tests pass, and no tool can cause a non-allowlisted request.

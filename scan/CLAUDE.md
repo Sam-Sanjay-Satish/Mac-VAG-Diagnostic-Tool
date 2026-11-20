@@ -170,7 +170,7 @@ Corrected on 2026-11-16 from the capture: the module list and names, the address
 
 ## Open questions
 - ~~Gateway installation list~~: built (2026-11-16) on the approved `22 04 A1` and CAN ID `32E`.
-- **Ignition and engine state** for `sessionStatus()`: options are "a module answers" (ignition) and RPM from an engine identifier or measuring block. Any new request needs adding to the allowlist with the user's approval. Both are `UNKNOWN` with a reason until then; may slip to v2.
+- **Ignition and engine state** for `sessionStatus()`: options are "a module answers" (ignition) and RPM from an engine identifier or measuring block. Since 2026-11-19 engine RPM is readable without an allowlist change (`21 01`, group 001 field 1 on the target car), but `sessionStatus()` doesn't use it yet. Both are `UNKNOWN` with a reason until then.
 - ~~**KWP Tester Present on TP 2.0**~~: dropped 2026-11-16; `A3` only, as VCDS.
 - **UDS Tester Present `3E 80` on functional `700`** (VCDS) vs our physical `3E 00`: `700` was not approved (2026-11-15), so we stay physical.
 - ~~**`7E0/7E8` and `7E1/7E9`**, the `740..7BF` range~~: removed / narrowed in transport on 2026-11-17 (user's approval).

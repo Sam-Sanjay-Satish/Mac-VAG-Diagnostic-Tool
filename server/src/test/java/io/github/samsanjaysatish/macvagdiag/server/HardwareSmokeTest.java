@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -35,6 +36,8 @@ import org.springframework.test.context.DynamicPropertySource;
         "logging.file.name=../local/hardware-runs/server-hardwareTest-frames.log",
         "logging.level." + AbstractCanAdapter.FRAME_LOGGER + "=TRACE",
         "logging.level.io.github.samsanjaysatish.macvagdiag.transport=DEBUG"})
+// Close the context (and the serial port) afterwards, so LiveDataHardwareTest's context can open it in the same JVM.
+@DirtiesContext
 class HardwareSmokeTest {
 
     static final Path AUDIT = Path.of("..", "local", "hardware-runs", "server-hardwareTest-audit.jsonl")
